@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 import { getBuiltinTemplates } from "../shared/builtins";
 import { BlueprintGraph, BlueprintNodeInstance } from "../shared/blueprint";
 import { getEffectiveTemplateForNode } from "../shared/graph";
-import { applyAutoLayout, renderedNodeHeight, renderedNodeWidth } from "./autoLayout";
+import { applyAutoLayout, NODE_WIDTH, portLocalPoint, renderedNodeHeight, renderedNodeWidth } from "./autoLayout";
 
 describe("applyAutoLayout", () => {
   it("lays out a large linear graph left-to-right without overlapping regular nodes", () => {
     const graph = largeLinearGraph(80);
-    const laidOut = applyAutoLayout(graph, getBuiltinTemplates());
+    const templates = getBuiltinTemplates();
+    const laidOut = applyAutoLayout(graph, templates);
     const regularNodes = laidOut.nodes.filter((node) => !node.displayOverrides?.autoLayoutHub);
 
     expect(regularNodes).toHaveLength(82);
@@ -17,7 +18,7 @@ describe("applyAutoLayout", () => {
     }
     for (let a = 0; a < regularNodes.length; a += 1) {
       for (let b = a + 1; b < regularNodes.length; b += 1) {
-        expect(overlaps(regularNodes[a], regularNodes[b])).toBe(false);
+        expect(overlaps(laidOut, templates, regularNodes[a], regularNodes[b])).toBe(false);
       }
     }
   });
@@ -51,6 +52,21 @@ describe("applyAutoLayout", () => {
       expect(node).toBeDefined();
       expect(commentContainsNode(laidOut, node as BlueprintNodeInstance, comment!)).toBe(true);
     }
+  });
+
+  it("aligns port geometry to node edges and rendered port sections", () => {
+    const templates = getBuiltinTemplates();
+    const log = templates.find((template) => template.id === "builtin.debug.log");
+    const branch = templates.find((template) => template.id === "builtin.control.branch");
+    expect(log).toBeDefined();
+    expect(branch).toBeDefined();
+
+    expect(portLocalPoint(log!, log!.controlInputs[0])).toEqual({ x: 0, y: 58 });
+    expect(portLocalPoint(log!, log!.controlOutputs[0])).toEqual({ x: NODE_WIDTH, y: 58 });
+    expect(portLocalPoint(log!, log!.inputs[0])).toEqual({ x: 0, y: 98 });
+    expect(portLocalPoint(branch!, branch!.controlOutputs[0])).toEqual({ x: NODE_WIDTH, y: 58 });
+    expect(portLocalPoint(branch!, branch!.controlOutputs[1])).toEqual({ x: NODE_WIDTH, y: 88 });
+    expect(portLocalPoint(branch!, branch!.inputs[0])).toEqual({ x: 0, y: 128 });
   });
 });
 
@@ -107,14 +123,18 @@ function largeLinearGraph(logCount: number): BlueprintGraph {
   };
 }
 
-function overlaps(a: BlueprintNodeInstance, b: BlueprintNodeInstance): boolean {
-  const width = 268;
-  const height = 102;
+function overlaps(graph: BlueprintGraph, templates: ReturnType<typeof getBuiltinTemplates>, a: BlueprintNodeInstance, b: BlueprintNodeInstance): boolean {
+  const aTemplate = getEffectiveTemplateForNode(graph, templates, a);
+  const bTemplate = getEffectiveTemplateForNode(graph, templates, b);
+  const aWidth = renderedNodeWidth(aTemplate, a);
+  const bWidth = renderedNodeWidth(bTemplate, b);
+  const aHeight = renderedNodeHeight(aTemplate, a);
+  const bHeight = renderedNodeHeight(bTemplate, b);
   return !(
-    a.position.x + width <= b.position.x ||
-    b.position.x + width <= a.position.x ||
-    a.position.y + height <= b.position.y ||
-    b.position.y + height <= a.position.y
+    a.position.x + aWidth <= b.position.x ||
+    b.position.x + bWidth <= a.position.x ||
+    a.position.y + aHeight <= b.position.y ||
+    b.position.y + bHeight <= a.position.y
   );
 }
 

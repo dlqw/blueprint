@@ -2682,7 +2682,7 @@ describe("Blueprint webview App", () => {
       const rewrapped = postedMessages.filter((message) => message.type === "graphChanged").at(-1);
       expect(rewrapped?.type).toBe("graphChanged");
       expect(rewrapped?.graph.comments?.[0].position).toEqual({ x: 44, y: 62 });
-      expect(rewrapped?.graph.comments?.[0].size).toEqual({ width: 680, height: 188 });
+      expect(rewrapped?.graph.comments?.[0].size).toEqual({ width: 680, height: 212 });
     });
 
     fireEvent.contextMenu(comment as Element, { clientX: 180, clientY: 110 });
@@ -2693,7 +2693,7 @@ describe("Blueprint webview App", () => {
       expect(bookmarked?.type).toBe("graphChanged");
       expect(bookmarked?.graph.bookmarks?.[0].label).toBe("Startup");
       expect(bookmarked?.graph.bookmarks?.[0].nodeId).toBeUndefined();
-      expect(bookmarked?.graph.bookmarks?.[0].position).toEqual({ x: 384, y: 156 });
+      expect(bookmarked?.graph.bookmarks?.[0].position).toEqual({ x: 384, y: 168 });
     });
   });
 

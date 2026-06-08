@@ -11,8 +11,10 @@ import {
 import { findPort, getEffectiveTemplateForNode } from "../shared/graph";
 
 export const NODE_WIDTH = 268;
-export const HEADER_HEIGHT = 30;
-export const ROW_HEIGHT = 28;
+export const HEADER_HEIGHT = 38;
+export const PORT_ROW_HEIGHT = 30;
+export const PORT_SECTION_PADDING_Y = 5;
+export const PORT_SECTION_MIN_HEIGHT = 32;
 export const HUB_WIDTH = 46;
 export const HUB_HEIGHT = 36;
 
@@ -60,8 +62,9 @@ export function renderedNodeHeight(template: BlueprintNodeTemplate | undefined, 
   if (isRoutingHubTemplate(template) || node?.displayOverrides?.compact === true) {
     return HUB_HEIGHT;
   }
+  const controlRows = Math.max(template?.controlInputs.length ?? 0, template?.controlOutputs.length ?? 0);
   const dataRows = Math.max(template?.inputs.length ?? 0, template?.outputs.length ?? 0);
-  return HEADER_HEIGHT + 36 + dataRows * ROW_HEIGHT;
+  return HEADER_HEIGHT + portSectionHeight(controlRows) + portSectionHeight(dataRows);
 }
 
 export function portLocalPoint(template: BlueprintNodeTemplate, port: BlueprintPortDefinition): Point {
@@ -69,14 +72,21 @@ export function portLocalPoint(template: BlueprintNodeTemplate, port: BlueprintP
     return { x: port.direction === "input" ? 0 : HUB_WIDTH, y: HUB_HEIGHT / 2 };
   }
 
-  const allInputs = [...template.controlInputs, ...template.inputs];
-  const allOutputs = [...template.controlOutputs, ...template.outputs];
-  const collection = port.direction === "input" ? allInputs : allOutputs;
+  const isControl = port.flowKind === "control";
+  const collection = isControl
+    ? port.direction === "input" ? template.controlInputs : template.controlOutputs
+    : port.direction === "input" ? template.inputs : template.outputs;
   const index = Math.max(0, collection.findIndex((candidate) => candidate.id === port.id));
+  const controlRows = Math.max(template.controlInputs.length, template.controlOutputs.length);
+  const sectionTop = isControl ? HEADER_HEIGHT : HEADER_HEIGHT + portSectionHeight(controlRows);
   return {
     x: port.direction === "input" ? 0 : NODE_WIDTH,
-    y: HEADER_HEIGHT + 18 + index * ROW_HEIGHT
+    y: sectionTop + PORT_SECTION_PADDING_Y + PORT_ROW_HEIGHT / 2 + index * PORT_ROW_HEIGHT
   };
+}
+
+function portSectionHeight(rowCount: number): number {
+  return Math.max(PORT_SECTION_MIN_HEIGHT, PORT_SECTION_PADDING_Y * 2 + rowCount * PORT_ROW_HEIGHT);
 }
 
 function collapseAutoLayoutHubs(graph: BlueprintGraph): BlueprintGraph {

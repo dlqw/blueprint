@@ -1902,9 +1902,10 @@ textarea:focus-visible {
 
 .node-header {
   display: grid;
-  height: 30px;
+  height: 38px;
   align-content: center;
-  padding: 0 10px;
+  gap: 1px;
+  padding: 4px 11px;
   background: color-mix(in srgb, var(--node-accent, #333) 26%, #333);
   border-bottom: 1px solid #222;
 }
@@ -1921,11 +1922,13 @@ textarea:focus-visible {
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0;
-  line-height: 18px;
+  line-height: 15px;
 }
 
 .node-header span {
-  display: none;
+  color: #999;
+  font-size: 11px;
+  line-height: 13px;
 }
 
 .node.selected .node-header strong {
