@@ -2351,8 +2351,8 @@ export function App(): JSX.Element {
   ].filter(Boolean).join(" ");
   const shellStyle = {
     ...themeStyle(editorPrefs.theme, editorPrefs.customTheme),
-    "--left-panel-width": leftPanelOpen ? `${panelSizes.left}px` : "44px",
-    "--right-panel-width": rightPanelOpen ? `${panelSizes.right}px` : "44px",
+    "--left-panel-width": leftPanelOpen ? `${panelSizes.left}px` : "48px",
+    "--right-panel-width": rightPanelOpen ? `${panelSizes.right}px` : "48px",
     "--bottom-panel-height": bottomPanelOpen ? `${panelSizes.bottom}px` : "34px",
     "--left-splitter-width": leftPanelOpen ? "6px" : "0px",
     "--right-splitter-width": rightPanelOpen ? "6px" : "0px",

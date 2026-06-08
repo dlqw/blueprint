@@ -11,7 +11,7 @@ import {
 import { findPort, getEffectiveTemplateForNode } from "../shared/graph";
 
 export const NODE_WIDTH = 268;
-export const HEADER_HEIGHT = 38;
+export const HEADER_HEIGHT = 30;
 export const ROW_HEIGHT = 28;
 export const HUB_WIDTH = 46;
 export const HUB_HEIGHT = 36;
