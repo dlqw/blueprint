@@ -3,6 +3,7 @@ import { defaultThemeId, normalizeCustomTheme, normalizeThemeId, type CustomThem
 
 export type LinkRenderMode = "spline" | "straight" | "orthogonal" | "hidden";
 export type ActionBarPlacement = "bottom" | "top";
+export type NodeLabelMode = "localized" | "source" | "both";
 
 export interface GraphEditorPrefs {
   minimapVisible: boolean;
@@ -10,6 +11,7 @@ export interface GraphEditorPrefs {
   gridVisible: boolean;
   snapToGrid: boolean;
   actionBarPlacement: ActionBarPlacement;
+  nodeLabelMode: NodeLabelMode;
   language: Locale;
   theme: ThemeId;
   customTheme?: CustomThemeConfig;
@@ -18,6 +20,7 @@ export interface GraphEditorPrefs {
 
 export const linkRenderModes: LinkRenderMode[] = ["spline", "straight", "orthogonal", "hidden"];
 export const actionBarPlacements: ActionBarPlacement[] = ["bottom", "top"];
+export const nodeLabelModes: NodeLabelMode[] = ["localized", "source", "both"];
 
 export const defaultGraphEditorPrefs: GraphEditorPrefs = {
   minimapVisible: true,
@@ -25,6 +28,7 @@ export const defaultGraphEditorPrefs: GraphEditorPrefs = {
   gridVisible: true,
   snapToGrid: false,
   actionBarPlacement: "bottom",
+  nodeLabelMode: "localized",
   language: defaultLocale,
   theme: defaultThemeId,
   shortcuts: {}
@@ -39,6 +43,7 @@ export function readGraphEditorPrefs(state: unknown): GraphEditorPrefs {
     gridVisible: typeof editorPrefs.gridVisible === "boolean" ? editorPrefs.gridVisible : defaultGraphEditorPrefs.gridVisible,
     snapToGrid: typeof editorPrefs.snapToGrid === "boolean" ? editorPrefs.snapToGrid : defaultGraphEditorPrefs.snapToGrid,
     actionBarPlacement: normalizeActionBarPlacement(editorPrefs.actionBarPlacement),
+    nodeLabelMode: normalizeNodeLabelMode(editorPrefs.nodeLabelMode),
     language: normalizeLocale(editorPrefs.language),
     theme: normalizeThemeId(editorPrefs.theme),
     ...(customTheme ? { customTheme } : {}),
@@ -56,6 +61,7 @@ export function mergeGraphEditorPrefsState(state: unknown, prefs: GraphEditorPre
     gridVisible: prefs.gridVisible,
     snapToGrid: prefs.snapToGrid,
     actionBarPlacement: prefs.actionBarPlacement,
+    nodeLabelMode: prefs.nodeLabelMode,
     language: prefs.language,
     theme: prefs.theme,
     shortcuts: prefs.shortcuts
@@ -93,6 +99,12 @@ export function normalizeActionBarPlacement(value: unknown): ActionBarPlacement 
   return typeof value === "string" && actionBarPlacements.includes(value as ActionBarPlacement)
     ? value as ActionBarPlacement
     : defaultGraphEditorPrefs.actionBarPlacement;
+}
+
+export function normalizeNodeLabelMode(value: unknown): NodeLabelMode {
+  return typeof value === "string" && nodeLabelModes.includes(value as NodeLabelMode)
+    ? value as NodeLabelMode
+    : defaultGraphEditorPrefs.nodeLabelMode;
 }
 
 function recordFromUnknown(value: unknown): Record<string, unknown> {

@@ -10,6 +10,7 @@ describe("editorPrefs", () => {
         gridVisible: 1,
         snapToGrid: "false",
         actionBarPlacement: "left",
+        nodeLabelMode: "debug",
         language: "de-DE",
         theme: "purple-orb",
         shortcuts: {
@@ -38,6 +39,7 @@ describe("editorPrefs", () => {
       gridVisible: false,
       snapToGrid: true,
       actionBarPlacement: "top",
+      nodeLabelMode: "both",
       language: "en-US",
       theme: "graphite",
       shortcuts: {
@@ -52,6 +54,7 @@ describe("editorPrefs", () => {
         gridVisible: false,
         snapToGrid: true,
         actionBarPlacement: "top",
+        nodeLabelMode: "both",
         language: "en-US",
         theme: "graphite",
         shortcuts: {
@@ -118,6 +121,7 @@ describe("editorPrefs", () => {
       gridVisible: false,
       snapToGrid: true,
       actionBarPlacement: "top" as const,
+      nodeLabelMode: "source" as const,
       language: "en-US" as const,
       theme: "high-contrast" as const,
       shortcuts: {

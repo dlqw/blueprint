@@ -6,13 +6,17 @@ import type {
   BlueprintCommentBox,
   BlueprintGraph,
   BlueprintNodeInstance,
+  BlueprintPortDefinition,
   BlueprintNodeTemplate,
   BlueprintSolutionGraphSearchIndex,
   BlueprintSolutionOutline
 } from "../shared/blueprint";
 import { getEffectiveTemplateForNode } from "../shared/graph";
+import { builtinNodeI18nCatalog } from "../shared/nodeI18nCatalog";
+import { localizePort, localizeTemplate } from "../shared/templateI18n";
 import { templateSourcePath } from "../shared/templateRefactor";
-import type { Translator } from "./i18n";
+import { fallbackLocale, type Locale, type Translator } from "./i18n";
+import type { NodeLabelMode } from "./editorPrefs";
 import { CollapsedDockPanel } from "./WorkbenchPanels";
 
 interface NodeFindEntry {
@@ -57,6 +61,8 @@ export function BlueprintSidebar(props: {
   open: boolean;
   graph: BlueprintGraph;
   t: Translator;
+  locale: Locale;
+  nodeLabelMode: NodeLabelMode;
   solution?: BlueprintSolutionOutline;
   solutionGraphIndex?: BlueprintSolutionGraphSearchIndex;
   templates: BlueprintNodeTemplate[];
@@ -101,6 +107,19 @@ export function BlueprintSidebar(props: {
   onClose(): void;
 }): JSX.Element {
   const t = props.t;
+  const templateName = (template: BlueprintNodeTemplate | undefined, fallback: string) => {
+    const localized = localizeTemplate(template, props.locale, fallbackLocale, builtinNodeI18nCatalog);
+    const source = template?.name ?? fallback;
+    return displaySidebarText(localized.name, source, props.nodeLabelMode);
+  };
+  const templatePath = (template: BlueprintNodeTemplate | undefined) => {
+    const localized = localizeTemplate(template, props.locale, fallbackLocale, builtinNodeI18nCatalog);
+    return displaySidebarText(localized.creationPath, template?.creationPath ?? "", props.nodeLabelMode);
+  };
+  const portName = (template: BlueprintNodeTemplate | undefined, port: BlueprintPortDefinition) => {
+    const localized = localizePort(template, port, props.locale, fallbackLocale, builtinNodeI18nCatalog);
+    return displaySidebarText(localized.name, port.name, props.nodeLabelMode);
+  };
   if (!props.open) {
     const title = t("sidebar.title");
     return <CollapsedDockPanel side="left" title={title} collapsedLabel={t("dock.collapsed", { title })} showTitle={t("dock.show", { title })} onOpen={props.onOpen} />;
@@ -156,7 +175,7 @@ export function BlueprintSidebar(props: {
     : [];
   const graphInputs = props.graph.templateMetadata?.inputs ?? [];
   const graphOutputs = props.graph.templateMetadata?.outputs ?? [];
-  const templateGroups = groupTemplatesByCategory(props.templates, t);
+  const templateGroups = groupTemplatesByCategory(props.templates, t, props.locale);
   const macroTemplates = props.templates.filter((template) => template.bodyKind === "macroExpansion");
   const graphTemplates = props.templates.filter((template) => template.bodyKind === "blueprintGraph");
   const referenceGroupTitle = (label: string, count: number, nodeIds: string[], title: string) => (
@@ -236,7 +255,7 @@ export function BlueprintSidebar(props: {
               className={props.selectedNodeIds.has(node.id) ? "mini-item active" : "mini-item"}
               onClick={(event) => selectOrFocusNode(node.id, event)}
             >
-              <span>{template?.name ?? node.templateId}</span>
+              <span>{templateName(template, node.templateId)}</span>
               <small>{matchLabel ?? node.id}</small>
             </button>
           ))}
@@ -251,7 +270,7 @@ export function BlueprintSidebar(props: {
                   title={t("sidebar.openSolutionSearchResult", { graphName: entry.graphName, nodeId: entry.nodeId ?? "" }).trim()}
                   onClick={() => props.onOpenGraph(entry.graphPath)}
                 >
-                  <span>{entry.nodeId ? `${entry.template?.name ?? entry.nodeId}` : entry.graphName}</span>
+                  <span>{entry.nodeId ? `${templateName(entry.template, entry.nodeId)}` : entry.graphName}</span>
                   <small>{entry.matchLabel ?? `${entry.projectName} / ${entry.graphKind}`}</small>
                 </button>
               ))}
@@ -301,7 +320,7 @@ export function BlueprintSidebar(props: {
         <div className="structure-group-title">{t("sidebar.inputs")} <span>{graphInputs.length}</span></div>
         {graphInputs.map((port) => (
           <span key={port.id} className="mini-item structure-item variable">
-            <span>{port.name}</span>
+            <span>{portName(undefined, port)}</span>
             <small>{port.type}</small>
           </span>
         ))}
@@ -309,7 +328,7 @@ export function BlueprintSidebar(props: {
         <div className="structure-group-title">{t("sidebar.outputs")} <span>{graphOutputs.length}</span></div>
         {graphOutputs.map((port) => (
           <span key={port.id} className="mini-item structure-item variable">
-            <span>{port.name}</span>
+            <span>{portName(undefined, port)}</span>
             <small>{port.type}</small>
           </span>
         ))}
@@ -325,8 +344,8 @@ export function BlueprintSidebar(props: {
         <div className="structure-group-title">{t("sidebar.macros")} <span>{macroTemplates.length}</span></div>
         {macroTemplates.slice(0, 4).map((template) => (
           <span key={template.id} className="mini-item structure-item macro">
-            <span>{template.name}</span>
-            <small>{template.creationPath}</small>
+            <span>{templateName(template, template.id)}</span>
+            <small>{templatePath(template)}</small>
           </span>
         ))}
         {!macroTemplates.length ? <span className="mini-empty">{t("sidebar.noMacrosLoaded")}</span> : null}
@@ -363,7 +382,7 @@ export function BlueprintSidebar(props: {
                 title={t("sidebar.focusOutlineNode", { nodeId: node.id })}
                 onClick={(event) => selectOrFocusNode(node.id, event)}
               >
-                <span>{template?.name ?? node.templateId}</span>
+                <span>{templateName(template, node.templateId)}</span>
                 <small>{node.id}</small>
               </button>
             ))}
@@ -405,7 +424,7 @@ export function BlueprintSidebar(props: {
         <div className="reference-list">
           <div className="mini-section-title"><Search size={12} /> {t("sidebar.references")}</div>
           <div className="reference-anchor">
-            <span>{selectedTemplate?.name ?? selectedNode.templateId}</span>
+            <span>{templateName(selectedTemplate, selectedNode.templateId)}</span>
             <small>{selectedNode.id}</small>
             <button type="button" title={t("sidebar.renameSelectedNode", { nodeId: selectedNode.id })} onClick={() => promptRenameGraphNodeId(selectedNode.id, props.onRenameGraphNodeId, t)}>
               <Pencil size={12} />
@@ -418,7 +437,7 @@ export function BlueprintSidebar(props: {
                 const template = getEffectiveTemplateForNode(props.graph, props.templates, node);
                 return (
                   <button key={link.id} className="mini-item reference-item" title={t("sidebar.focusReferenceNode", { nodeId: node.id })} onClick={(event) => selectOrFocusNode(node.id, event)}>
-                    <span>{template?.name ?? node.templateId}</span>
+                    <span>{templateName(template, node.templateId)}</span>
                     <small>{node.id}.{link.fromPortId}{" -> "}{selectedNode.id}.{link.toPortId}</small>
                   </button>
                 );
@@ -432,7 +451,7 @@ export function BlueprintSidebar(props: {
                 const template = getEffectiveTemplateForNode(props.graph, props.templates, node);
                 return (
                   <button key={link.id} className="mini-item reference-item" title={t("sidebar.focusReferenceNode", { nodeId: node.id })} onClick={(event) => selectOrFocusNode(node.id, event)}>
-                    <span>{template?.name ?? node.templateId}</span>
+                    <span>{templateName(template, node.templateId)}</span>
                     <small>{selectedNode.id}.{link.fromPortId}{" -> "}{node.id}.{link.toPortId}</small>
                   </button>
                 );
@@ -444,7 +463,7 @@ export function BlueprintSidebar(props: {
               {referenceGroupTitle(t("sidebar.sameTemplate"), templateReferences.length, [selectedNode.id, ...templateReferences.map(({ node }) => node.id)], t("sidebar.selectSameTemplateReferenceNodes"))}
               {templateReferences.map(({ node, template }) => (
                 <button key={node.id} className="mini-item reference-item" title={t("sidebar.focusReferenceNode", { nodeId: node.id })} onClick={(event) => selectOrFocusNode(node.id, event)}>
-                  <span>{template?.name ?? node.templateId}</span>
+                  <span>{templateName(template, node.templateId)}</span>
                   <small>{node.id}</small>
                 </button>
               ))}
@@ -456,7 +475,7 @@ export function BlueprintSidebar(props: {
               {variableReferences.map(({ node, template, key, access }) => (
                 <button key={node.id} className="mini-item reference-item" title={t("sidebar.focusVariableReferenceNode", { nodeId: node.id })} onClick={(event) => selectOrFocusNode(node.id, event)}>
                   <span>{access === "get" ? t("sidebar.get") : t("sidebar.set")} {key}</span>
-                  <small>{template?.name ?? node.templateId} / {node.id}</small>
+                  <small>{templateName(template, node.templateId)} / {node.id}</small>
                 </button>
               ))}
             </>
@@ -472,7 +491,7 @@ export function BlueprintSidebar(props: {
                   title={t("sidebar.openTemplateReference", { graphName: entry.graphName, nodeId: entry.nodeId })}
                   onClick={() => props.onOpenGraph(entry.graphPath)}
                 >
-                  <span>{entry.template?.name ?? selectedNode.templateId}</span>
+                  <span>{templateName(entry.template, selectedNode.templateId)}</span>
                   <small>{entry.projectName} / {entry.graphName} / {entry.nodeId}</small>
                 </button>
               ))}
@@ -506,7 +525,7 @@ export function BlueprintSidebar(props: {
                   title={t("sidebar.openSourceReference", { graphName: entry.graphName, nodeId: entry.nodeId })}
                   onClick={() => props.onOpenGraph(entry.graphPath)}
                 >
-                  <span>{entry.template?.name ?? entry.nodeId}</span>
+                  <span>{templateName(entry.template, entry.nodeId)}</span>
                   <small>{entry.projectName} / {entry.graphName} / {entry.nodeId}</small>
                 </button>
               ))}
@@ -568,7 +587,7 @@ export function BlueprintSidebar(props: {
                   <CircleDot size={12} />
                 </button>
                 <button className="breakpoint-focus" onClick={() => props.onFocusBreakpoint(node.id)}>
-                  <span>{template?.name ?? node.templateId}</span>
+                  <span>{templateName(template, node.templateId)}</span>
                   <small>{node.id}</small>
                 </button>
                 <input
@@ -595,15 +614,26 @@ export function BlueprintSidebar(props: {
   );
 }
 
-function groupTemplatesByCategory(templates: BlueprintNodeTemplate[], t: Translator): Array<{ category: string; count: number }> {
+function groupTemplatesByCategory(templates: BlueprintNodeTemplate[], t: Translator, locale: Locale): Array<{ category: string; count: number }> {
   const counts = new Map<string, number>();
   for (const template of templates) {
-    const category = template.creationPath.split("/")[0]?.trim() || "General";
+    const localized = localizeTemplate(template, locale, fallbackLocale, builtinNodeI18nCatalog);
+    const category = localized.creationPath.split("/")[0]?.trim() || template.creationPath.split("/")[0]?.trim() || "General";
     counts.set(category, (counts.get(category) ?? 0) + 1);
   }
   return [...counts.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([category, count]) => ({ category: category === "General" ? t("common.general") : category, count }));
+}
+
+function displaySidebarText(localized: string, source: string, mode: NodeLabelMode): string {
+  if (mode === "source") {
+    return source || localized;
+  }
+  if (mode === "both" && localized && source && localized !== source) {
+    return `${localized} / ${source}`;
+  }
+  return localized || source;
 }
 
 function findSolutionTemplateReferences(

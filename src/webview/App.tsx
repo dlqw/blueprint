@@ -67,6 +67,8 @@ import {
 } from "../shared/blueprint";
 import { createNodeFromTemplate, findPort, getEffectiveTemplateForNode } from "../shared/graph";
 import { collapseSelectionToFunction, collapseSelectionToMacro } from "../shared/collapse";
+import { builtinNodeI18nCatalog } from "../shared/nodeI18nCatalog";
+import { localizePort, localizeTemplate, templateSearchText } from "../shared/templateI18n";
 import { applyAutoLayout, HUB_HEIGHT, HUB_WIDTH, portLocalPoint, renderedNodeHeight, renderedNodeWidth, isRoutingHubTemplate } from "./autoLayout";
 import { BlueprintSidebar } from "./BlueprintSidebar";
 import {
@@ -84,11 +86,13 @@ import {
   defaultGraphEditorPrefs,
   linkRenderModes,
   mergeGraphEditorPrefsState,
+  nodeLabelModes,
   readGraphEditorPrefs,
   readGraphEditorPrefsFromText,
   serializeGraphEditorPrefs,
   type GraphEditorPrefs,
-  type LinkRenderMode
+  type LinkRenderMode,
+  type NodeLabelMode
 } from "./editorPrefs";
 import { createEditorHostClient } from "./editorHostClient";
 import {
@@ -120,7 +124,7 @@ import {
 import { GraphCanvas } from "./GraphCanvas";
 import { getEditorHostApi } from "./hostApi";
 import { InspectorPanel } from "./InspectorPanel";
-import { createTranslator, supportedLocales, type Translator } from "./i18n";
+import { createTranslator, fallbackLocale, supportedLocales, type Locale, type Translator } from "./i18n";
 import { defaultCustomTheme, editorThemes, readCustomThemeFromText, serializeCustomTheme, themeClassName, themeStyle } from "./themes";
 import { canvasInteractionReducer, idleInteractionState } from "./interactionState";
 import { capturePointer, isolateOverlayContextMenu, isolateOverlayEvent, preventOverlayDefault } from "./overlayEvents";
@@ -134,6 +138,50 @@ interface DragPort {
   flowKind: FlowKind;
   type: string;
   movingLink?: BlueprintLink;
+}
+
+function localizedTemplateText(template: BlueprintNodeTemplate | undefined, locale: Locale) {
+  return localizeTemplate(template, locale, fallbackLocale, builtinNodeI18nCatalog);
+}
+
+function localizedPortText(template: BlueprintNodeTemplate | undefined, port: BlueprintPortDefinition, locale: Locale) {
+  return localizePort(template, port, locale, fallbackLocale, builtinNodeI18nCatalog);
+}
+
+function localizedTemplateSearchText(template: BlueprintNodeTemplate, locale: Locale): string {
+  return templateSearchText(template, locale, fallbackLocale, builtinNodeI18nCatalog);
+}
+
+function displayTemplateText(template: BlueprintNodeTemplate | undefined, locale: Locale, mode: NodeLabelMode) {
+  const localized = localizedTemplateText(template, locale);
+  const source = {
+    name: template?.name ?? localized.name,
+    creationPath: template?.creationPath ?? localized.creationPath,
+    description: template?.description ?? localized.description
+  };
+  return {
+    name: displayText(localized.name, source.name, mode),
+    creationPath: displayText(localized.creationPath, source.creationPath, mode),
+    description: displayText(localized.description, source.description, mode)
+  };
+}
+
+function displayPortText(template: BlueprintNodeTemplate | undefined, port: BlueprintPortDefinition, locale: Locale, mode: NodeLabelMode) {
+  const localized = localizedPortText(template, port, locale);
+  return {
+    name: displayText(localized.name, port.name, mode),
+    description: displayText(localized.description, port.description, mode)
+  };
+}
+
+function displayText(localized: string, source: string, mode: NodeLabelMode): string {
+  if (mode === "source") {
+    return source;
+  }
+  if (mode === "both" && localized && source && localized !== source) {
+    return `${localized} / ${source}`;
+  }
+  return localized || source;
 }
 
 interface NodePanelState {
@@ -290,6 +338,7 @@ type RuntimeTraceStatusFilter = "all" | RuntimeTraceEvent["status"];
 type RuntimeComparisonFilter = "all" | RuntimeRunComparisonItem["kind"];
 type RuntimeComparisonSort = "kind" | "node" | "status";
 type RuntimeTraceGroupBy = "none" | "node" | "status";
+type RuntimeTraceLabeler = (trace: RuntimeTraceEvent) => string;
 
 interface Rect {
   x: number;
@@ -508,6 +557,7 @@ export function App(): JSX.Element {
       storedPrefs.gridVisible === editorPrefs.gridVisible &&
       storedPrefs.snapToGrid === editorPrefs.snapToGrid &&
       storedPrefs.actionBarPlacement === editorPrefs.actionBarPlacement &&
+      storedPrefs.nodeLabelMode === editorPrefs.nodeLabelMode &&
       storedPrefs.language === editorPrefs.language &&
       storedPrefs.theme === editorPrefs.theme &&
       shortcutPrefsEqual(storedPrefs.shortcuts, editorPrefs.shortcuts)
@@ -545,10 +595,10 @@ export function App(): JSX.Element {
   const selectedCommentId = useMemo(() => [...selectedCommentIds][0], [selectedCommentIds]);
   const selectedComment = useMemo(() => graphComments(graph).find((comment) => comment.id === selectedCommentId), [graph, selectedCommentId]);
   const selectedTemplate = useMemo(() => (graph && selectedNode ? getEffectiveTemplateForNode(graph, graphTemplates, selectedNode) : undefined), [graph, graphTemplates, selectedNode]);
-  const nodeFindResults = useMemo(() => (graph ? findNodesInGraph(graph, graphTemplates, nodeFindQuery, t) : []), [graph, graphTemplates, nodeFindQuery, t]);
+  const nodeFindResults = useMemo(() => (graph ? findNodesInGraph(graph, graphTemplates, nodeFindQuery, t, editorPrefs.language) : []), [editorPrefs.language, graph, graphTemplates, nodeFindQuery, t]);
   const solutionFindResults = useMemo(
-    () => findInSolutionGraphIndex(solutionGraphIndex, graphTemplates, nodeFindQuery, solutionOutline?.activeGraphPath, t),
-    [graphTemplates, nodeFindQuery, solutionGraphIndex, solutionOutline?.activeGraphPath, t]
+    () => findInSolutionGraphIndex(solutionGraphIndex, graphTemplates, nodeFindQuery, solutionOutline?.activeGraphPath, t, editorPrefs.language),
+    [editorPrefs.language, graphTemplates, nodeFindQuery, solutionGraphIndex, solutionOutline?.activeGraphPath, t]
   );
   const graphOutlineNodes = useMemo(
     () =>
@@ -561,16 +611,16 @@ export function App(): JSX.Element {
   );
   const graphOutlineComments = useMemo(() => graphComments(graph), [graph]);
   const filteredGraphOutlineNodes = useMemo(
-    () => filterOutlineNodes(graphOutlineNodes, outlineQuery),
-    [graphOutlineNodes, outlineQuery]
+    () => filterOutlineNodes(graphOutlineNodes, outlineQuery, editorPrefs.language),
+    [editorPrefs.language, graphOutlineNodes, outlineQuery]
   );
   const visibleGraphOutlineNodes = useMemo(
     () => filteredGraphOutlineNodes.slice(0, outlineNodeRenderLimit),
     [filteredGraphOutlineNodes]
   );
   const filteredGraphOutlineNodeGroups = useMemo(
-    () => groupOutlineNodesByCategory(visibleGraphOutlineNodes, t),
-    [visibleGraphOutlineNodes, t]
+    () => groupOutlineNodesByCategory(visibleGraphOutlineNodes, t, editorPrefs.language),
+    [editorPrefs.language, visibleGraphOutlineNodes, t]
   );
   const filteredGraphOutlineComments = useMemo(
     () => filterOutlineComments(graphOutlineComments, outlineQuery),
@@ -583,8 +633,8 @@ export function App(): JSX.Element {
     () => graphTemplates.filter((template) => templateAvailableForCreation(template, disabledTemplatePackageIds, templateRegistrySources)),
     [disabledTemplatePackageIds, graphTemplates, templateRegistrySources]
   );
-  const rankedTemplateCandidates = useMemo(() => rankedTemplates(creationTemplates, search, nodePanel.sourcePort, palettePrefs), [creationTemplates, nodePanel.sourcePort, palettePrefs, search]);
-  const categories = useMemo(() => templateCategorySummaries(rankedTemplateCandidates, palettePrefs, t), [palettePrefs, rankedTemplateCandidates, t]);
+  const rankedTemplateCandidates = useMemo(() => rankedTemplates(creationTemplates, search, nodePanel.sourcePort, palettePrefs, editorPrefs.language), [creationTemplates, editorPrefs.language, nodePanel.sourcePort, palettePrefs, search]);
+  const categories = useMemo(() => templateCategorySummaries(rankedTemplateCandidates, palettePrefs, t, editorPrefs.language), [editorPrefs.language, palettePrefs, rankedTemplateCandidates, t]);
   const candidates = useMemo(
     () => activeTemplateCategory === allTemplateCategoryId
       ? rankedTemplateCandidates
@@ -2374,6 +2424,7 @@ export function App(): JSX.Element {
       runtimeHistory={runtimeHistory}
       activeRuntimeTraceIndex={activeRuntimeTraceIndex}
       t={t}
+      traceLabel={runtimeTraceLabeler(graph, graphTemplates, editorPrefs.language, editorPrefs.nodeLabelMode)}
       onIssueFocus={focusIssue}
       onRuntimeHistorySelect={selectRuntimeHistory}
       onRuntimeHistoryRename={renameRuntimeHistory}
@@ -2439,6 +2490,8 @@ export function App(): JSX.Element {
         open={leftPanelOpen}
         graph={graph}
         t={t}
+        locale={editorPrefs.language}
+        nodeLabelMode={editorPrefs.nodeLabelMode}
         solution={solutionOutline}
         solutionGraphIndex={solutionGraphIndex}
         templates={graphTemplates}
@@ -2671,6 +2724,8 @@ export function App(): JSX.Element {
                 node={node}
                 template={getEffectiveTemplateForNode(graph, graphTemplates, node)}
                 t={t}
+                locale={editorPrefs.language}
+                nodeLabelMode={editorPrefs.nodeLabelMode}
                 categoryAccents={categoryAccents}
                 selected={selectedNodeIds.has(node.id)}
                 hasBreakpoint={breakpointNodeIds.has(node.id)}
@@ -2793,6 +2848,8 @@ export function App(): JSX.Element {
                   activeIndex={activeCandidateIndex}
                   favoriteTemplateIds={favoriteTemplateIds}
                   t={t}
+                  locale={editorPrefs.language}
+                  nodeLabelMode={editorPrefs.nodeLabelMode}
                   onSearch={setSearch}
                   onCategoryChange={(category) => {
                     setActiveTemplateCategory(category);
@@ -2903,6 +2960,8 @@ export function App(): JSX.Element {
             onLiteralChange={updateLiteral}
             onUnlink={unlinkPort}
             t={t}
+            locale={editorPrefs.language}
+            nodeLabelMode={editorPrefs.nodeLabelMode}
           />
         ) : selectedComment ? (
           <CommentInspector comment={selectedComment} t={t} onTitleChange={updateCommentTitle} onSizeChange={updateCommentSize} onColorChange={updateCommentColor} />
@@ -2934,6 +2993,8 @@ export function App(): JSX.Element {
           favoriteTemplateIds={favoriteTemplateIds}
           disabledPackageIds={disabledTemplatePackageIds}
           t={t}
+          locale={editorPrefs.language}
+          nodeLabelMode={editorPrefs.nodeLabelMode}
           onToggleFavorite={toggleFavoriteTemplate}
           onTogglePackageEnabled={toggleTemplatePackageEnabled}
           onCreateTemplate={addTemplateFromRegistry}
@@ -2996,6 +3057,8 @@ function BlueprintNode(props: {
   node: BlueprintNodeInstance;
   template: BlueprintNodeTemplate | undefined;
   t: Translator;
+  locale: Locale;
+  nodeLabelMode: NodeLabelMode;
   categoryAccents: CategoryAccentMap;
   selected: boolean;
   hasBreakpoint: boolean;
@@ -3010,6 +3073,7 @@ function BlueprintNode(props: {
   onPortDrop(port: BlueprintPortDefinition): void;
 }): JSX.Element {
   const { node, template } = props;
+  const templateText = displayTemplateText(template, props.locale, props.nodeLabelMode);
   const compact = isRoutingHubTemplate(template) || node.displayOverrides?.compact === true;
   const disabled = node.displayOverrides?.disabled === true;
   const width = renderedNodeWidth(template, node);
@@ -3030,7 +3094,7 @@ function BlueprintNode(props: {
       <div
         className={className}
         data-node-id={node.id}
-        title={template?.name ?? node.templateId}
+        title={`${templateText.name || node.templateId} · ${template?.creationPath ?? ""} · ${node.templateId}`.trim()}
         style={nodeStyle}
         onContextMenu={props.onContextMenu}
         onPointerDown={(event) => {
@@ -3048,6 +3112,9 @@ function BlueprintNode(props: {
             <Port
               key={`${port.direction}-${port.id}`}
               port={port}
+              template={template}
+              locale={props.locale}
+              nodeLabelMode={props.nodeLabelMode}
               side={port.direction === "input" ? "left" : "right"}
               highlighted={props.highlightedPortId === port.id}
               compatibility={props.portCompatibility(port)}
@@ -3078,20 +3145,20 @@ function BlueprintNode(props: {
       <RuntimeStatusBadge status={props.runtimeStatus} t={props.t} />
       {props.hasBreakpoint ? <span className="breakpoint-badge" title={props.t("node.breakpoint")} /> : null}
       <div className="node-header">
-        <strong>{template?.name ?? node.templateId}</strong>
-        <span>{template?.creationPath ?? props.t("node.missingTemplate")}</span>
+        <strong>{templateText.name || node.templateId}</strong>
+        <span>{templateText.creationPath || props.t("node.missingTemplate")}</span>
       </div>
       <div className="exec-row">
-        {template?.controlInputs.map((port) => <Port key={port.id} port={port} side="left" highlighted={props.highlightedPortId === port.id} compatibility={props.portCompatibility(port)} onPointerDown={(event) => props.onPortDragStart(port, event)} onContextMenu={(event) => props.onPortContextMenu(port, event)} onPointerUp={() => props.onPortDrop(port)} />)}
+        {template?.controlInputs.map((port) => <Port key={port.id} port={port} template={template} locale={props.locale} nodeLabelMode={props.nodeLabelMode} side="left" highlighted={props.highlightedPortId === port.id} compatibility={props.portCompatibility(port)} onPointerDown={(event) => props.onPortDragStart(port, event)} onContextMenu={(event) => props.onPortContextMenu(port, event)} onPointerUp={() => props.onPortDrop(port)} />)}
         <div className="exec-spacer" />
-        {template?.controlOutputs.map((port) => <Port key={port.id} port={port} side="right" highlighted={props.highlightedPortId === port.id} compatibility={props.portCompatibility(port)} onPointerDown={(event) => props.onPortDragStart(port, event)} onContextMenu={(event) => props.onPortContextMenu(port, event)} onPointerUp={() => props.onPortDrop(port)} />)}
+        {template?.controlOutputs.map((port) => <Port key={port.id} port={port} template={template} locale={props.locale} nodeLabelMode={props.nodeLabelMode} side="right" highlighted={props.highlightedPortId === port.id} compatibility={props.portCompatibility(port)} onPointerDown={(event) => props.onPortDragStart(port, event)} onContextMenu={(event) => props.onPortContextMenu(port, event)} onPointerUp={() => props.onPortDrop(port)} />)}
       </div>
       <div className="data-rows">
         <div>
-          {template?.inputs.map((port) => <Port key={port.id} port={port} side="left" highlighted={props.highlightedPortId === port.id} compatibility={props.portCompatibility(port)} onPointerDown={(event) => props.onPortDragStart(port, event)} onContextMenu={(event) => props.onPortContextMenu(port, event)} onPointerUp={() => props.onPortDrop(port)} />)}
+          {template?.inputs.map((port) => <Port key={port.id} port={port} template={template} locale={props.locale} nodeLabelMode={props.nodeLabelMode} side="left" highlighted={props.highlightedPortId === port.id} compatibility={props.portCompatibility(port)} onPointerDown={(event) => props.onPortDragStart(port, event)} onContextMenu={(event) => props.onPortContextMenu(port, event)} onPointerUp={() => props.onPortDrop(port)} />)}
         </div>
         <div>
-          {template?.outputs.map((port) => <Port key={port.id} port={port} side="right" highlighted={props.highlightedPortId === port.id} compatibility={props.portCompatibility(port)} onPointerDown={(event) => props.onPortDragStart(port, event)} onContextMenu={(event) => props.onPortContextMenu(port, event)} onPointerUp={() => props.onPortDrop(port)} />)}
+          {template?.outputs.map((port) => <Port key={port.id} port={port} template={template} locale={props.locale} nodeLabelMode={props.nodeLabelMode} side="right" highlighted={props.highlightedPortId === port.id} compatibility={props.portCompatibility(port)} onPointerDown={(event) => props.onPortDragStart(port, event)} onContextMenu={(event) => props.onPortContextMenu(port, event)} onPointerUp={() => props.onPortDrop(port)} />)}
         </div>
       </div>
     </div>
@@ -3246,12 +3313,14 @@ function TemplateRegistryPanel(props: {
   favoriteTemplateIds: Set<string>;
   disabledPackageIds: Set<string>;
   t: Translator;
+  locale: Locale;
+  nodeLabelMode: NodeLabelMode;
   onToggleFavorite(templateId: string): void;
   onTogglePackageEnabled(packageId: string): void;
   onCreateTemplate(template: BlueprintNodeTemplate): void;
   onClose(): void;
 }): JSX.Element {
-  const packages = useMemo(() => templateRegistryPackages(props.templates, props.sources, props.t), [props.sources, props.t, props.templates]);
+  const packages = useMemo(() => templateRegistryPackages(props.templates, props.sources, props.t, props.locale), [props.locale, props.sources, props.t, props.templates]);
   const [activePackageId, setActivePackageId] = useState(packages[0]?.id ?? "all");
   const [query, setQuery] = useState("");
   const packageIds = useMemo(() => packages.map((summary) => summary.id), [packages]);
@@ -3263,8 +3332,8 @@ function TemplateRegistryPanel(props: {
   }, [activePackageId, packageIds, packages]);
 
   const visibleTemplates = useMemo(
-    () => templateRegistryTemplates(packages, activePackageId, query, props.t),
-    [activePackageId, packages, props.t, query]
+    () => templateRegistryTemplates(packages, activePackageId, query, props.t, props.locale),
+    [activePackageId, packages, props.locale, props.t, query]
   );
   const [activeTemplateId, setActiveTemplateId] = useState<string | undefined>(visibleTemplates[0]?.id);
   const activePackage = packages.find((summary) => summary.id === activePackageId) ?? packages[0];
@@ -3332,24 +3401,31 @@ function TemplateRegistryPanel(props: {
           </div>
           <div className="template-registry-list" aria-label={props.t("templateRegistry.templates")}>
             {visibleTemplates.length ? visibleTemplates.map((template) => (
+              (() => {
+                const templateText = displayTemplateText(template, props.locale, props.nodeLabelMode);
+                return (
               <button
                 key={template.id}
                 type="button"
                 className={template.id === activeTemplate?.id ? "active" : ""}
-                title={props.t("templateRegistry.inspectTemplate", { name: template.name })}
+                title={props.t("templateRegistry.inspectTemplate", { name: templateText.name })}
                 onClick={() => setActiveTemplateId(template.id)}
               >
-                <strong>{template.name}</strong>
-                <span>{template.creationPath}</span>
+                <strong>{templateText.name}</strong>
+                <span>{templateText.creationPath}</span>
               </button>
+                );
+              })()
             )) : <span className="template-registry-empty">{props.t("templateRegistry.noTemplates")}</span>}
           </div>
           <div className="template-registry-details">
-            {activeTemplate ? (
+            {activeTemplate ? (() => {
+              const activeTemplateText = displayTemplateText(activeTemplate, props.locale, props.nodeLabelMode);
+              return (
               <>
                 <div className="template-registry-detail-head">
                   <div>
-                    <strong>{activeTemplate.name}</strong>
+                    <strong>{activeTemplateText.name}</strong>
                     <span>{templatePackageName(activeTemplate, props.t)}</span>
                   </div>
                   <div className="template-registry-actions">
@@ -3360,27 +3436,27 @@ function TemplateRegistryPanel(props: {
                         title={activePackageEnabled ? props.t("templateRegistry.disablePackage", { name: activePackage.name }) : props.t("templateRegistry.enablePackage", { name: activePackage.name })}
                         onClick={() => props.onTogglePackageEnabled(activePackage.id)}
                       >
-                        <Power size={14} />
+                      <Power size={14} />
                       </button>
                     ) : null}
                     <button
                       type="button"
                       className={props.favoriteTemplateIds.has(activeTemplate.id) ? "active" : ""}
-                      title={props.favoriteTemplateIds.has(activeTemplate.id) ? props.t("templateRegistry.unfavoriteTemplate", { name: activeTemplate.name }) : props.t("templateRegistry.favoriteTemplate", { name: activeTemplate.name })}
+                      title={props.favoriteTemplateIds.has(activeTemplate.id) ? props.t("templateRegistry.unfavoriteTemplate", { name: activeTemplateText.name }) : props.t("templateRegistry.favoriteTemplate", { name: activeTemplateText.name })}
                       onClick={() => props.onToggleFavorite(activeTemplate.id)}
                     >
                       <Star size={14} />
                     </button>
-                    <button type="button" title={activeTemplateAvailable ? props.t("templateRegistry.createTemplateNode", { name: activeTemplate.name }) : props.t("templateRegistry.templateDisabled", { name: activeTemplate.name })} disabled={!activeTemplateAvailable} onClick={() => props.onCreateTemplate(activeTemplate)}>
+                    <button type="button" title={activeTemplateAvailable ? props.t("templateRegistry.createTemplateNode", { name: activeTemplateText.name }) : props.t("templateRegistry.templateDisabled", { name: activeTemplateText.name })} disabled={!activeTemplateAvailable} onClick={() => props.onCreateTemplate(activeTemplate)}>
                       <Plus size={14} />
                     </button>
                   </div>
                 </div>
-                <p>{activeTemplate.description}</p>
+                <p>{activeTemplateText.description}</p>
                 <dl className="template-registry-meta">
                   <div>
                     <dt>{props.t("templateRegistry.path")}</dt>
-                    <dd>{activeTemplate.creationPath}</dd>
+                    <dd>{activeTemplateText.creationPath}</dd>
                   </div>
                   <div>
                     <dt>{props.t("templateRegistry.body")}</dt>
@@ -3395,9 +3471,10 @@ function TemplateRegistryPanel(props: {
                     <dd>{templatePortCount(activeTemplate)}</dd>
                   </div>
                 </dl>
-                <TemplatePortSummary template={activeTemplate} t={props.t} />
+                <TemplatePortSummary template={activeTemplate} t={props.t} locale={props.locale} nodeLabelMode={props.nodeLabelMode} />
               </>
-            ) : activePackage ? (
+              );
+            })() : activePackage ? (
               <TemplateRegistrySourceDetails
                 summary={activePackage}
                 enabled={activePackageEnabled}
@@ -3591,6 +3668,22 @@ function EditorSettingsPanel(props: {
           >
             {props.t("settings.actionbarTop")}
           </button>
+        </div>
+      </div>
+      <div className="setting-row">
+        <span>{props.t("settings.nodeLabels")}</span>
+        <div className="setting-segmented" aria-label={props.t("settings.nodeLabelMode")}>
+          {nodeLabelModes.map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              className={props.prefs.nodeLabelMode === mode ? "active" : ""}
+              title={props.t("settings.setNodeLabelMode", { mode: props.t(`settings.nodeLabelMode.${mode}`) })}
+              onClick={() => props.onChange({ nodeLabelMode: mode })}
+            >
+              {props.t(`settings.nodeLabelMode.${mode}`)}
+            </button>
+          ))}
         </div>
       </div>
       <div className="setting-row">
@@ -3910,6 +4003,9 @@ function GraphMinimap(props: {
 
 function Port(props: {
   port: BlueprintPortDefinition;
+  template: BlueprintNodeTemplate | undefined;
+  locale: Locale;
+  nodeLabelMode: NodeLabelMode;
   side: "left" | "right";
   highlighted?: boolean;
   compatibility?: PortCompatibility;
@@ -3918,10 +4014,11 @@ function Port(props: {
   onPointerUp?(): void;
 }): JSX.Element {
   const className = `port ${props.side} ${props.port.flowKind}${props.highlighted ? " issue-focus" : ""}${props.compatibility ? ` ${props.compatibility}` : ""}`;
+  const portText = displayPortText(props.template, props.port, props.locale, props.nodeLabelMode);
   return (
     <button
       className={className}
-      title={`${props.port.name}: ${props.port.type}`}
+      title={`${portText.name}: ${props.port.type}${portText.description ? ` · ${portText.description}` : ""}`}
       onPointerDown={(event) => {
         event.stopPropagation();
         props.onPointerDown(event);
@@ -3933,7 +4030,7 @@ function Port(props: {
       }}
     >
       <span className="pin" />
-      <span className="port-label">{props.port.name}</span>
+      <span className="port-label">{portText.name}</span>
     </button>
   );
 }
@@ -4127,6 +4224,8 @@ function NodeCreationPanel(props: {
   activeIndex: number;
   favoriteTemplateIds: Set<string>;
   t: Translator;
+  locale: Locale;
+  nodeLabelMode: NodeLabelMode;
   onSearch(value: string): void;
   onCategoryChange(category: string): void;
   onActiveIndexChange(index: number): void;
@@ -4198,7 +4297,7 @@ function NodeCreationPanel(props: {
         <input autoFocus value={props.search} onChange={(event) => props.onSearch(event.target.value)} placeholder={props.t("nodeCreation.searchPlaceholder")} />
         <button onClick={props.onClose}>Esc</button>
       </div>
-      {props.sourcePort ? <PinCreationHint sourcePort={props.sourcePort} targetPort={activeCompatiblePort} t={props.t} /> : null}
+      {props.sourcePort ? <PinCreationHint sourcePort={props.sourcePort} targetTemplate={activeCandidate} targetPort={activeCompatiblePort} t={props.t} locale={props.locale} nodeLabelMode={props.nodeLabelMode} /> : null}
       <div className="candidate-grid">
         <div className="candidate-column categories">
           {props.categories.map((category) => (
@@ -4217,14 +4316,16 @@ function NodeCreationPanel(props: {
           {props.candidates.length ? (
             props.candidates.map((template, index) => {
               const compatiblePort = props.sourcePort ? compatiblePortsForTemplate(template, props.sourcePort)[0] : undefined;
+              const templateText = displayTemplateText(template, props.locale, props.nodeLabelMode);
+              const compatiblePortText = compatiblePort ? displayPortText(template, compatiblePort, props.locale, props.nodeLabelMode) : undefined;
               return (
                 <div key={template.id} className={index === props.activeIndex ? "candidate active" : "candidate"}>
                   <button className="candidate-main" onMouseEnter={() => props.onActiveIndexChange(index)} onClick={() => props.onPick(template)}>
-                    <strong>{template.name}</strong>
-                    <span>{template.creationPath}</span>
+                    <strong>{templateText.name}</strong>
+                    <span>{templateText.creationPath}</span>
                     {compatiblePort ? (
-                      <small className="candidate-compatibility" title={pinCreationTargetTitle(props.sourcePort!, compatiblePort, props.t)}>
-                        {props.t("nodeCreation.connectsTo", { port: compatiblePort.name })}
+                      <small className="candidate-compatibility" title={pinCreationTargetTitle(props.sourcePort!, compatiblePort, props.t, template, props.locale, props.nodeLabelMode)}>
+                        {props.t("nodeCreation.connectsTo", { port: compatiblePortText?.name ?? compatiblePort.name })}
                       </small>
                     ) : null}
                   </button>
@@ -4246,20 +4347,24 @@ function NodeCreationPanel(props: {
           )}
         </div>
         <div className="candidate-column details">
-          {activeCandidate ? (
+          {activeCandidate ? (() => {
+            const activeCandidateText = displayTemplateText(activeCandidate, props.locale, props.nodeLabelMode);
+            const activeCompatiblePortText = activeCompatiblePort ? displayPortText(activeCandidate, activeCompatiblePort, props.locale, props.nodeLabelMode) : undefined;
+            return (
             <>
-              <strong>{activeCandidate.name}</strong>
-              <p>{activeCandidate.description}</p>
+              <strong>{activeCandidateText.name}</strong>
+              <p>{activeCandidateText.description}</p>
               <small>{props.t("nodeCreation.portCounts", { inputs: activeCandidate.inputs.length, outputs: activeCandidate.outputs.length })}</small>
               {props.sourcePort && activeCompatiblePort ? (
-                <div className="template-compatible-target" title={pinCreationTargetTitle(props.sourcePort, activeCompatiblePort, props.t)}>
+                <div className="template-compatible-target" title={pinCreationTargetTitle(props.sourcePort, activeCompatiblePort, props.t, activeCandidate, props.locale, props.nodeLabelMode)}>
                   <GitBranch size={12} />
-                  <span>{props.t("nodeCreation.autoConnectsTo", { port: activeCompatiblePort.name, type: activeCompatiblePort.type })}</span>
+                  <span>{props.t("nodeCreation.autoConnectsTo", { port: activeCompatiblePortText?.name ?? activeCompatiblePort.name, type: activeCompatiblePort.type })}</span>
                 </div>
               ) : null}
-              <TemplatePortSummary template={activeCandidate} t={props.t} />
+              <TemplatePortSummary template={activeCandidate} t={props.t} locale={props.locale} nodeLabelMode={props.nodeLabelMode} />
             </>
-          ) : (
+            );
+          })() : (
             <p className="candidate-empty-detail">{props.t("nodeCreation.chooseAnotherCategory")}</p>
           )}
         </div>
@@ -4322,27 +4427,31 @@ function nodeCreationEmptyState(search: string, activeCategory: string, sourcePo
 
 function PinCreationHint(props: {
   sourcePort: DragPort;
+  targetTemplate?: BlueprintNodeTemplate;
   targetPort?: BlueprintPortDefinition;
   t: Translator;
+  locale: Locale;
+  nodeLabelMode: NodeLabelMode;
 }): JSX.Element {
   const sourceDirection = props.sourcePort.direction === "output" ? "output" : "input";
   const targetDirection = props.sourcePort.direction === "output" ? "input" : "output";
+  const targetPortText = props.targetPort ? displayPortText(props.targetTemplate, props.targetPort, props.locale, props.nodeLabelMode) : undefined;
   return (
-    <div className="pin-creation-hint" title={props.targetPort ? pinCreationTargetTitle(props.sourcePort, props.targetPort, props.t) : undefined}>
+    <div className="pin-creation-hint" title={props.targetPort ? pinCreationTargetTitle(props.sourcePort, props.targetPort, props.t, props.targetTemplate, props.locale, props.nodeLabelMode) : undefined}>
       <GitBranch size={13} />
       <span>
         {props.t("nodeCreation.fromPin", { direction: sourceDirection, flowKind: props.sourcePort.flowKind })} <strong>{props.sourcePort.type}</strong>
       </span>
       <small>
         {props.targetPort
-          ? props.t("nodeCreation.willConnectTo", { direction: targetDirection, port: props.targetPort.name })
+          ? props.t("nodeCreation.willConnectTo", { direction: targetDirection, port: targetPortText?.name ?? props.targetPort.name })
           : props.t("nodeCreation.showingCompatiblePorts", { direction: targetDirection })}
       </small>
     </div>
   );
 }
 
-function TemplatePortSummary(props: { template: BlueprintNodeTemplate; t: Translator }): JSX.Element {
+function TemplatePortSummary(props: { template: BlueprintNodeTemplate; t: Translator; locale: Locale; nodeLabelMode: NodeLabelMode }): JSX.Element {
   const groups: Array<{ label: string; ports: BlueprintPortDefinition[] }> = [
     { label: props.t("templatePorts.controlIn"), ports: props.template.controlInputs },
     { label: props.t("templatePorts.controlOut"), ports: props.template.controlOutputs },
@@ -4359,14 +4468,17 @@ function TemplatePortSummary(props: { template: BlueprintNodeTemplate; t: Transl
       {groups.map((group) => (
         <div key={group.label} className="template-port-group">
           <div className="template-port-group-title">{group.label}</div>
-          {group.ports.map((port) => (
-            <div key={port.id} className="template-port-row" title={port.description}>
+          {group.ports.map((port) => {
+            const portText = displayPortText(props.template, port, props.locale, props.nodeLabelMode);
+            return (
+            <div key={port.id} className="template-port-row" title={portText.description}>
               <span className={`template-port-kind ${port.flowKind}`}>{port.flowKind}</span>
-              <strong>{port.name}</strong>
+              <strong>{portText.name}</strong>
               <small>{port.type}</small>
-              <p>{port.description}</p>
+              <p>{portText.description}</p>
             </div>
-          ))}
+            );
+          })}
         </div>
       ))}
     </div>
@@ -4440,19 +4552,22 @@ function Inspector(props: {
   issues: ValidationIssue[];
   focusedIssueKey?: string;
   t: Translator;
+  locale: Locale;
+  nodeLabelMode: NodeLabelMode;
   onIssueFocus(issue: ValidationIssue): void;
   onLiteralChange(node: BlueprintNodeInstance, port: BlueprintPortDefinition, value: unknown): void;
   onUnlink(node: BlueprintNodeInstance, port: BlueprintPortDefinition): void;
 }): JSX.Element {
+  const templateText = displayTemplateText(props.template, props.locale, props.nodeLabelMode);
   return (
     <div className="inspector-body">
       <div className="node-summary">
-        <strong>{props.template.name}</strong>
-        <span>{props.template.description}</span>
+        <strong>{templateText.name}</strong>
+        <span>{templateText.description}</span>
       </div>
-      <InspectorPortGroup title={props.t("inspector.controlInputs")} ports={props.template.controlInputs} node={props.node} graph={props.graph} t={props.t} onUnlink={props.onUnlink} />
-      <InspectorPortGroup title={props.t("inspector.inputs")} ports={props.template.inputs} node={props.node} graph={props.graph} t={props.t} onLiteralChange={props.onLiteralChange} onUnlink={props.onUnlink} />
-      <InspectorPortGroup title={props.t("inspector.outputs")} ports={props.template.outputs} node={props.node} graph={props.graph} t={props.t} />
+      <InspectorPortGroup title={props.t("inspector.controlInputs")} template={props.template} ports={props.template.controlInputs} node={props.node} graph={props.graph} t={props.t} locale={props.locale} nodeLabelMode={props.nodeLabelMode} onUnlink={props.onUnlink} />
+      <InspectorPortGroup title={props.t("inspector.inputs")} template={props.template} ports={props.template.inputs} node={props.node} graph={props.graph} t={props.t} locale={props.locale} nodeLabelMode={props.nodeLabelMode} onLiteralChange={props.onLiteralChange} onUnlink={props.onUnlink} />
+      <InspectorPortGroup title={props.t("inspector.outputs")} template={props.template} ports={props.template.outputs} node={props.node} graph={props.graph} t={props.t} locale={props.locale} nodeLabelMode={props.nodeLabelMode} />
       {props.issues.length ? (
         <div className="issue-list">
           {props.issues.map((issue) => (
@@ -4480,6 +4595,7 @@ function DiagnosticStrip(props: {
   runtimeHistory: RuntimeHistoryEntry[];
   activeRuntimeTraceIndex?: number;
   t: Translator;
+  traceLabel: RuntimeTraceLabeler;
   onIssueFocus(issue: ValidationIssue): void;
   onRuntimeHistorySelect(entry: RuntimeHistoryEntry): void;
   onRuntimeHistoryRename(entry: RuntimeHistoryEntry): void;
@@ -4496,9 +4612,9 @@ function DiagnosticStrip(props: {
           <span className={props.runtimeOutput.ok ? "output-message runtime-ok" : "output-message runtime-error"} title={props.runtimeOutput.text}>
             {runtimeOutputHeading(props.runtimeOutput, props.t)}: {props.runtimeOutput.text}
           </span>
-          {!props.runtimeOutput.ok ? <RuntimeErrorSummary entry={props.runtimeOutput} t={props.t} onStep={props.onRuntimeTraceStep} /> : null}
-          <RuntimeTraceStepper entry={props.runtimeOutput} activeIndex={props.activeRuntimeTraceIndex} t={props.t} onStep={props.onRuntimeTraceStep} />
-          <RuntimeTraceDetails entry={props.runtimeOutput} compareEntry={compareEntry} activeIndex={props.activeRuntimeTraceIndex} t={props.t} onStep={props.onRuntimeTraceStep} />
+          {!props.runtimeOutput.ok ? <RuntimeErrorSummary entry={props.runtimeOutput} t={props.t} traceLabel={props.traceLabel} onStep={props.onRuntimeTraceStep} /> : null}
+          <RuntimeTraceStepper entry={props.runtimeOutput} activeIndex={props.activeRuntimeTraceIndex} t={props.t} traceLabel={props.traceLabel} onStep={props.onRuntimeTraceStep} />
+          <RuntimeTraceDetails entry={props.runtimeOutput} compareEntry={compareEntry} activeIndex={props.activeRuntimeTraceIndex} t={props.t} traceLabel={props.traceLabel} onStep={props.onRuntimeTraceStep} />
           <RuntimeHistoryBar
             history={props.runtimeHistory}
             activeId={props.runtimeOutput.id}
@@ -4544,6 +4660,7 @@ function DiagnosticStrip(props: {
 function RuntimeErrorSummary(props: {
   entry: RuntimeHistoryEntry;
   t: Translator;
+  traceLabel: RuntimeTraceLabeler;
   onStep(index: number): void;
 }): JSX.Element {
   const errorTraceIndexes = props.entry.traces
@@ -4561,7 +4678,7 @@ function RuntimeErrorSummary(props: {
           title={props.t("runtime.focusFirstError")}
           onClick={() => props.onStep(firstError.index)}
         >
-          {runtimeTraceNodeLabel(firstError.trace)}
+          {runtimeTraceNodeLabel(firstError.trace, props.traceLabel)}
         </button>
       ) : (
         <span>{props.entry.message}</span>
@@ -4574,6 +4691,7 @@ function RuntimeTraceStepper(props: {
   entry: RuntimeHistoryEntry;
   activeIndex?: number;
   t: Translator;
+  traceLabel: RuntimeTraceLabeler;
   onStep(index: number): void;
 }): JSX.Element | null {
   if (!props.entry.traces.length) {
@@ -4581,7 +4699,7 @@ function RuntimeTraceStepper(props: {
   }
   const activeIndex = clamp(props.activeIndex ?? 0, 0, props.entry.traces.length - 1);
   const trace = props.entry.traces[activeIndex];
-  const label = trace.nodeName ? `${trace.nodeName} (${trace.nodeId})` : trace.nodeId;
+  const label = runtimeTraceNodeLabel(trace, props.traceLabel);
   return (
     <span className="trace-stepper" title={trace.message ?? label}>
       <button title={props.t("runtime.previousTrace")} onClick={() => props.onStep(activeIndex - 1)} disabled={activeIndex <= 0}>
@@ -4604,6 +4722,7 @@ function RuntimeTraceDetails(props: {
   compareEntry?: RuntimeHistoryEntry;
   activeIndex?: number;
   t: Translator;
+  traceLabel: RuntimeTraceLabeler;
   onStep(index: number): void;
 }): JSX.Element | null {
   const [open, setOpen] = useState(false);
@@ -4639,11 +4758,11 @@ function RuntimeTraceDetails(props: {
   const filteredTraces = props.entry.traces
     .map((trace, index) => ({ trace, index }))
     .filter(({ trace }) => statusFilter === "all" || trace.status === statusFilter)
-    .filter(({ trace }) => runtimeTraceMatchesQuery(trace, query));
+    .filter(({ trace }) => runtimeTraceMatchesQuery(trace, query, props.traceLabel));
   const visibleTraces = filteredTraces.slice(0, 80);
-  const visibleTraceGroups = groupRuntimeTraces(visibleTraces, traceGroupBy, props.t);
+  const visibleTraceGroups = groupRuntimeTraces(visibleTraces, traceGroupBy, props.t, props.traceLabel);
   const firstTimestamp = props.entry.traces.find((trace) => typeof trace.timestamp === "number")?.timestamp;
-  const comparison = runtimeRunComparison(props.entry, props.compareEntry);
+  const comparison = runtimeRunComparison(props.entry, props.compareEntry, props.traceLabel);
   const comparisonCounts = comparison ? runtimeComparisonKindCounts(comparison.items) : new Map<RuntimeRunComparisonItem["kind"], number>();
   const filteredComparisonItems = comparison?.items.filter((item) => comparisonFilter === "all" || item.kind === comparisonFilter) ?? [];
   const sortedComparisonItems = sortRuntimeComparisonItems(filteredComparisonItems, comparisonSort);
@@ -4886,7 +5005,7 @@ function RuntimeTraceDetails(props: {
                   </div>
                 ) : null}
                 {group.items.map(({ trace, index }) => {
-                  const label = runtimeTraceNodeLabel(trace);
+                  const label = runtimeTraceNodeLabel(trace, props.traceLabel);
                   const context = runtimeTraceContextText(trace);
                   return (
                     <button
@@ -5048,10 +5167,13 @@ function runtimeTraceGroupLabel(groupBy: RuntimeTraceGroupBy, t: Translator): st
 
 function InspectorPortGroup(props: {
   title: string;
+  template: BlueprintNodeTemplate;
   ports: BlueprintPortDefinition[];
   node: BlueprintNodeInstance;
   graph: BlueprintGraph;
   t: Translator;
+  locale: Locale;
+  nodeLabelMode: NodeLabelMode;
   onLiteralChange?(node: BlueprintNodeInstance, port: BlueprintPortDefinition, value: unknown): void;
   onUnlink?(node: BlueprintNodeInstance, port: BlueprintPortDefinition): void;
 }): JSX.Element | null {
@@ -5062,17 +5184,18 @@ function InspectorPortGroup(props: {
     <section className="inspector-section">
       <h3>{props.title}</h3>
       {props.ports.map((port) => {
+        const portText = displayPortText(props.template, port, props.locale, props.nodeLabelMode);
         const linked = props.graph.links.find((link) => link.toNodeId === props.node.id && link.toPortId === port.id);
         const linkCount = linkIdsForPort(props.graph, props.node.id, port).size;
         const binding = props.node.inputBindings[port.id];
         return (
           <label key={port.id} className={linked ? "field linked" : "field"}>
-            <span className="field-name" title={port.description}>{port.name}</span>
+            <span className="field-name" title={portText.description}>{portText.name}</span>
             <span className="field-detail">
               {linked || port.direction === "output" || port.flowKind === "control" ? (
                 <span className="linked-control">
                   <input disabled value={linked ? `${linked.fromNodeId}.${linked.fromPortId}` : port.type} />
-                  {linked ? <button type="button" title={props.t("inspector.disconnectPort", { port: port.name })} onClick={() => props.onUnlink?.(props.node, port)}>{props.t("inspector.unlink")}</button> : null}
+                  {linked ? <button type="button" title={props.t("inspector.disconnectPort", { port: portText.name })} onClick={() => props.onUnlink?.(props.node, port)}>{props.t("inspector.unlink")}</button> : null}
                 </span>
               ) : (
                 <PortEditor port={port} value={binding?.literalValue ?? port.defaultValue ?? ""} onChange={(value) => props.onLiteralChange?.(props.node, port, value)} />
@@ -5085,7 +5208,7 @@ function InspectorPortGroup(props: {
                 <small>{linkCount ? props.t("inspector.linkCount", { count: linkCount }) : props.t("inspector.unlinked")}</small>
                 {port.defaultValue !== undefined ? <small>{props.t("inspector.defaultValue", { value: formatPortDefaultValue(port.defaultValue) })}</small> : null}
               </span>
-              {port.description ? <small className="port-description">{port.description}</small> : null}
+              {portText.description ? <small className="port-description">{portText.description}</small> : null}
             </span>
           </label>
         );
@@ -5122,7 +5245,7 @@ function PortEditor(props: { port: BlueprintPortDefinition; value: unknown; onCh
   return <input value={String(props.value ?? "")} onChange={(event) => props.onChange(event.target.value)} />;
 }
 
-function findNodesInGraph(graph: BlueprintGraph, templates: BlueprintNodeTemplate[], query: string, t: Translator): NodeFindResult[] {
+function findNodesInGraph(graph: BlueprintGraph, templates: BlueprintNodeTemplate[], query: string, t: Translator, locale: Locale): NodeFindResult[] {
   const tokens = query
     .toLowerCase()
     .split(/\s+/)
@@ -5132,7 +5255,7 @@ function findNodesInGraph(graph: BlueprintGraph, templates: BlueprintNodeTemplat
   return graph.nodes
     .map((node, index) => {
       const template = getEffectiveTemplateForNode(graph, templates, node);
-      const values = nodeFindSearchValues(graph, node, template, t);
+      const values = nodeFindSearchValues(graph, node, template, t, locale);
       return { node, template, index, ...scoreFindResult(values, tokens) };
     })
     .filter((entry) => !tokens.length || entry.score > 0)
@@ -5145,7 +5268,8 @@ function findInSolutionGraphIndex(
   templates: BlueprintNodeTemplate[],
   query: string,
   activeGraphPath: string | undefined,
-  t: Translator
+  t: Translator,
+  locale: Locale
 ): SolutionGraphFindResult[] {
   const tokens = outlineTokens(query);
   if (!index || !tokens.length) {
@@ -5183,11 +5307,15 @@ function findInSolutionGraphIndex(
       const nodeResults: Array<SolutionGraphFindResult & { index: number }> = [];
       graph.nodes.forEach((node, nodeIndex) => {
         const template = templateById.get(node.templateId);
+        const templateText = localizedTemplateText(template, locale);
         const nodeMatch = scoreFindResult([
           { label: t("searchLabel.node"), value: node.id },
           { label: t("searchLabel.template"), value: node.templateId },
+          { label: t("searchLabel.name"), value: templateText.name },
           { label: t("searchLabel.name"), value: template?.name },
+          { label: t("searchLabel.path"), value: templateText.creationPath },
           { label: t("searchLabel.path"), value: template?.creationPath },
+          { label: t("searchLabel.description"), value: templateText.description },
           { label: t("searchLabel.description"), value: template?.description },
           { label: t("searchLabel.source"), value: template?.bodyRef },
           { label: t("searchLabel.source"), value: typeof template?.metadata?.source === "string" ? template.metadata.source : undefined },
@@ -5195,7 +5323,7 @@ function findInSolutionGraphIndex(
           { label: t("searchLabel.variable"), value: node.blackboardAccess ? `${node.blackboardAccess} ${node.blackboardKey ?? ""}` : undefined },
           { label: t("searchLabel.generated"), value: node.generatedTraceRef },
           { label: t("searchLabel.ports"), value: [...node.inputPortIds, ...node.outputPortIds].join(" ") },
-          { label: t("searchLabel.ports"), value: template ? templatePortSearchText(template) : undefined }
+          { label: t("searchLabel.ports"), value: template ? templatePortSearchText(template, locale) : undefined }
         ], tokens);
         if (nodeMatch.score > 0) {
           nodeResults.push({
@@ -5218,14 +5346,18 @@ function findInSolutionGraphIndex(
     .map(({ index: _index, ...entry }) => entry);
 }
 
-function nodeFindSearchValues(graph: BlueprintGraph, node: BlueprintNodeInstance, template: BlueprintNodeTemplate | undefined, t: Translator): Array<{ label: string; value?: string }> {
+function nodeFindSearchValues(graph: BlueprintGraph, node: BlueprintNodeInstance, template: BlueprintNodeTemplate | undefined, t: Translator, locale: Locale): Array<{ label: string; value?: string }> {
   const blackboardReference = blackboardReferenceForNode(node, template);
+  const templateText = localizedTemplateText(template, locale);
   return [
     { label: t("searchLabel.node"), value: node.id },
     { label: t("searchLabel.template"), value: node.templateId },
     { label: t("searchLabel.template"), value: template?.id },
+    { label: t("searchLabel.name"), value: templateText.name },
     { label: t("searchLabel.name"), value: template?.name },
+    { label: t("searchLabel.path"), value: templateText.creationPath },
     { label: t("searchLabel.path"), value: template?.creationPath },
+    { label: t("searchLabel.description"), value: templateText.description },
     { label: t("searchLabel.description"), value: template?.description },
     { label: t("searchLabel.body"), value: template?.bodyKind },
     { label: t("searchLabel.source"), value: template?.bodyRef },
@@ -5233,7 +5365,7 @@ function nodeFindSearchValues(graph: BlueprintGraph, node: BlueprintNodeInstance
     { label: t("searchLabel.variable"), value: blackboardReference?.key },
     { label: t("searchLabel.variable"), value: blackboardReference ? `${blackboardReference.access} ${blackboardReference.key}` : undefined },
     { label: t("searchLabel.generated"), value: generatedTraceReference(graph, node) },
-    { label: t("searchLabel.ports"), value: template ? templatePortSearchText(template) : undefined }
+    { label: t("searchLabel.ports"), value: template ? templatePortSearchText(template, locale) : undefined }
   ];
 }
 
@@ -5258,9 +5390,12 @@ function blackboardReferenceForNode(
   };
 }
 
-function templatePortSearchText(template: BlueprintNodeTemplate): string {
+function templatePortSearchText(template: BlueprintNodeTemplate, locale: Locale): string {
   return [...template.controlInputs, ...template.inputs, ...template.outputs, ...template.controlOutputs]
-    .map((port) => `${port.id} ${port.name} ${port.type}`)
+    .map((port) => {
+      const portText = localizedPortText(template, port, locale);
+      return `${port.id} ${port.name} ${portText.name} ${port.description} ${portText.description} ${port.type}`;
+    })
     .join(" ");
 }
 
@@ -5270,28 +5405,31 @@ function mergeTemplatesById(templates: BlueprintNodeTemplate[]): BlueprintNodeTe
 
 function filterOutlineNodes(
   entries: Array<{ node: BlueprintNodeInstance; template: BlueprintNodeTemplate | undefined }>,
-  query: string
+  query: string,
+  locale: Locale
 ): Array<{ node: BlueprintNodeInstance; template: BlueprintNodeTemplate | undefined }> {
   const tokens = outlineTokens(query);
   if (!tokens.length) {
     return entries;
   }
   return entries.filter(({ node, template }) =>
-    tokens.every((token) =>
-      [node.id, node.templateId, template?.id, template?.name, template?.creationPath]
+    tokens.every((token) => {
+      const templateText = localizedTemplateText(template, locale);
+      return [node.id, node.templateId, template?.id, templateText.name, template?.name, templateText.creationPath, template?.creationPath]
         .filter(Boolean)
-        .some((value) => value!.toLowerCase().includes(token))
-    )
+        .some((value) => value!.toLowerCase().includes(token));
+    })
   );
 }
 
 function groupOutlineNodesByCategory(
   entries: Array<{ node: BlueprintNodeInstance; template: BlueprintNodeTemplate | undefined }>,
-  t: Translator
+  t: Translator,
+  locale: Locale
 ): Array<{ category: string; entries: Array<{ node: BlueprintNodeInstance; template: BlueprintNodeTemplate | undefined }> }> {
   const groups = new Map<string, Array<{ node: BlueprintNodeInstance; template: BlueprintNodeTemplate | undefined }>>();
   for (const entry of entries) {
-    const category = entry.template?.creationPath.split("/")[0]?.trim() || t("node.missingTemplate");
+    const category = localizedTemplateText(entry.template, locale).creationPath.split("/")[0]?.trim() || t("node.missingTemplate");
     groups.set(category, [...(groups.get(category) ?? []), entry]);
   }
   return [...groups.entries()].map(([category, groupEntries]) => ({ category, entries: groupEntries }));
@@ -5382,8 +5520,26 @@ function formatRuntimeText(stdout: string, stderr: string, fallback: string): st
   return text || fallback;
 }
 
-function runtimeTraceNodeLabel(trace: RuntimeTraceEvent): string {
-  return trace.nodeName ? `${trace.nodeName} (${trace.nodeId})` : trace.nodeId;
+function runtimeTraceLabeler(
+  graph: BlueprintGraph,
+  templates: BlueprintNodeTemplate[],
+  locale: Locale,
+  mode: NodeLabelMode
+): RuntimeTraceLabeler {
+  return (trace) => {
+    if (trace.graphId === graph.id) {
+      const node = graph.nodes.find((candidate) => candidate.id === trace.nodeId);
+      const template = node ? getEffectiveTemplateForNode(graph, templates, node) : undefined;
+      if (template) {
+        return `${displayTemplateText(template, locale, mode).name} (${trace.nodeId})`;
+      }
+    }
+    return trace.nodeName ? `${displayText(trace.nodeName, trace.nodeName, mode)} (${trace.nodeId})` : trace.nodeId;
+  };
+}
+
+function runtimeTraceNodeLabel(trace: RuntimeTraceEvent, traceLabel?: RuntimeTraceLabeler): string {
+  return traceLabel ? traceLabel(trace) : trace.nodeName ? `${trace.nodeName} (${trace.nodeId})` : trace.nodeId;
 }
 
 function runtimeTraceContextText(trace: RuntimeTraceEvent): string {
@@ -5459,7 +5615,7 @@ function compareRuntimeComparisonKind(
   return (kindOrder.get(a.kind) ?? 99) - (kindOrder.get(b.kind) ?? 99);
 }
 
-function runtimeRunComparison(entry: RuntimeHistoryEntry, previous: RuntimeHistoryEntry | undefined): RuntimeRunComparison | undefined {
+function runtimeRunComparison(entry: RuntimeHistoryEntry, previous: RuntimeHistoryEntry | undefined, traceLabel?: RuntimeTraceLabeler): RuntimeRunComparison | undefined {
   if (!previous) {
     return undefined;
   }
@@ -5478,7 +5634,7 @@ function runtimeRunComparison(entry: RuntimeHistoryEntry, previous: RuntimeHisto
         kind: "new",
         graphId: currentFinal.trace.graphId,
         nodeId: currentFinal.trace.nodeId,
-        label: runtimeTraceNodeLabel(currentFinal.trace),
+        label: runtimeTraceNodeLabel(currentFinal.trace, traceLabel),
         currentStatus: currentFinal.trace.status,
         currentContext: currentFinal.trace.context,
         traceIndex: currentFinal.index
@@ -5489,7 +5645,7 @@ function runtimeRunComparison(entry: RuntimeHistoryEntry, previous: RuntimeHisto
         kind: "changed",
         graphId: currentFinal.trace.graphId,
         nodeId: currentFinal.trace.nodeId,
-        label: runtimeTraceNodeLabel(currentFinal.trace),
+        label: runtimeTraceNodeLabel(currentFinal.trace, traceLabel),
         currentStatus: currentFinal.trace.status,
         previousStatus: previousFinal.trace.status,
         currentContext: currentFinal.trace.context,
@@ -5507,7 +5663,7 @@ function runtimeRunComparison(entry: RuntimeHistoryEntry, previous: RuntimeHisto
         kind: "missing",
         graphId: previousFinal.trace.graphId,
         nodeId: previousFinal.trace.nodeId,
-        label: runtimeTraceNodeLabel(previousFinal.trace),
+        label: runtimeTraceNodeLabel(previousFinal.trace, traceLabel),
         previousStatus: previousFinal.trace.status,
         previousContext: previousFinal.trace.context
       });
@@ -5559,14 +5715,15 @@ function runtimeTraceExportPayload(
 function groupRuntimeTraces(
   traces: Array<{ trace: RuntimeTraceEvent; index: number }>,
   groupBy: RuntimeTraceGroupBy,
-  t: Translator
+  t: Translator,
+  traceLabel?: RuntimeTraceLabeler
 ): Array<{ key: string; label: string; items: Array<{ trace: RuntimeTraceEvent; index: number }> }> {
   if (groupBy === "none") {
     return [{ key: "all", label: t("runtime.allTraces"), items: traces }];
   }
   const groups = new Map<string, { key: string; label: string; items: Array<{ trace: RuntimeTraceEvent; index: number }> }>();
   for (const item of traces) {
-    const label = groupBy === "status" ? item.trace.status : runtimeTraceNodeLabel(item.trace);
+    const label = groupBy === "status" ? item.trace.status : runtimeTraceNodeLabel(item.trace, traceLabel);
     const key = groupBy === "status" ? `status:${item.trace.status}` : `node:${item.trace.graphId}:${item.trace.nodeId}`;
     const group = groups.get(key) ?? { key, label, items: [] };
     group.items.push(item);
@@ -5674,7 +5831,7 @@ function runtimeComparisonStatusText(item: RuntimeRunComparisonItem, t?: Transla
   return t ? t("runtime.wasStatus", { status: runtimeTraceStatusLabel(item.previousStatus, t) }) : `was ${item.previousStatus}`;
 }
 
-function runtimeTraceMatchesQuery(trace: RuntimeTraceEvent, query: string): boolean {
+function runtimeTraceMatchesQuery(trace: RuntimeTraceEvent, query: string, traceLabel?: RuntimeTraceLabeler): boolean {
   const normalized = query.trim().toLowerCase();
   if (!normalized) {
     return true;
@@ -5683,6 +5840,7 @@ function runtimeTraceMatchesQuery(trace: RuntimeTraceEvent, query: string): bool
     trace.graphId,
     trace.nodeId,
     trace.nodeName,
+    runtimeTraceNodeLabel(trace, traceLabel),
     trace.status,
     trace.message,
     runtimeTraceContextText(trace)
@@ -5796,7 +5954,7 @@ function applyRuntimeTraceStatus(
   return statuses;
 }
 
-function rankedTemplates(templates: BlueprintNodeTemplate[], search: string, sourcePort: DragPort | undefined, prefs: NodePalettePrefs): BlueprintNodeTemplate[] {
+function rankedTemplates(templates: BlueprintNodeTemplate[], search: string, sourcePort: DragPort | undefined, prefs: NodePalettePrefs, locale: Locale): BlueprintNodeTemplate[] {
   const normalized = search.trim().toLowerCase();
   return templates
     .filter((template) => !sourcePort || templateHasCompatiblePort(template, sourcePort))
@@ -5804,9 +5962,9 @@ function rankedTemplates(templates: BlueprintNodeTemplate[], search: string, sou
       if (!normalized) {
         return true;
       }
-      return `${template.name} ${template.creationPath} ${template.description}`.toLowerCase().includes(normalized);
+      return localizedTemplateSearchText(template, locale).includes(normalized);
     })
-    .map((template, index) => ({ template, index, score: templateScore(template, normalized, sourcePort, prefs) }))
+    .map((template, index) => ({ template, index, score: templateScore(template, normalized, sourcePort, prefs, locale) }))
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .map((entry) => entry.template);
 }
@@ -5818,11 +5976,15 @@ function templateAvailableForCreation(template: BlueprintNodeTemplate, disabledP
   return !sources.some((source) => disabledPackageIds.has(`source:${source.projectPath}`) && templateMatchesRegistrySource(template, source));
 }
 
-function templateCategorySummaries(templates: BlueprintNodeTemplate[], prefs: NodePalettePrefs, t: Translator): TemplateCategorySummary[] {
-  const counts = new Map<string, number>();
+function templateCategorySummaries(templates: BlueprintNodeTemplate[], prefs: NodePalettePrefs, t: Translator, locale: Locale): TemplateCategorySummary[] {
+  const counts = new Map<string, { count: number; displayName: string }>();
   for (const template of templates) {
     const category = templateCategory(template);
-    counts.set(category, (counts.get(category) ?? 0) + 1);
+    const current = counts.get(category);
+    counts.set(category, {
+      count: (current?.count ?? 0) + 1,
+      displayName: current?.displayName ?? templateCategoryDisplayName(category, template, t, locale)
+    });
   }
   const favoriteIds = new Set(prefs.favoriteTemplateIds);
   const recentIds = new Set(prefs.recentTemplateIds);
@@ -5834,7 +5996,7 @@ function templateCategorySummaries(templates: BlueprintNodeTemplate[], prefs: No
     ...(recentCount ? [{ id: recentTemplateCategoryId, name: t("nodeCreation.recent"), count: recentCount }] : []),
     ...[...counts.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([name, count]) => ({ id: `category:${name}`, name: templateCategoryDisplayName(name, t), count }))
+      .map(([name, entry]) => ({ id: `category:${name}`, name: entry.displayName, count: entry.count }))
   ];
 }
 
@@ -5842,7 +6004,13 @@ function templateCategory(template: BlueprintNodeTemplate): string {
   return template.creationPath.split("/")[0]?.trim() || "General";
 }
 
-function templateCategoryDisplayName(category: string, t: Translator): string {
+function templateCategoryDisplayName(category: string, template: BlueprintNodeTemplate | undefined, t: Translator, locale: Locale): string {
+  if (template) {
+    const localizedCategory = localizedTemplateText(template, locale).creationPath.split("/")[0]?.trim();
+    if (localizedCategory) {
+      return localizedCategory;
+    }
+  }
   return category === "General" ? t("common.general") : category;
 }
 
@@ -5856,7 +6024,7 @@ function templateMatchesPaletteCategory(template: BlueprintNodeTemplate, categor
   return templateCategory(template) === category.replace(/^category:/, "");
 }
 
-function templateRegistryPackages(templates: BlueprintNodeTemplate[], sources: TemplateRegistrySourceSummary[], t: Translator): TemplateRegistryPackageSummary[] {
+function templateRegistryPackages(templates: BlueprintNodeTemplate[], sources: TemplateRegistrySourceSummary[], t: Translator, locale: Locale): TemplateRegistryPackageSummary[] {
   const packages = new Map<string, { name: string; templates: BlueprintNodeTemplate[]; projectPath?: string; sourceGlobs: string[]; templatePackages: string[]; builtinGroups: string[] }>();
   packages.set("all", { name: t("templateRegistry.allTemplates"), templates, sourceGlobs: [], templatePackages: [], builtinGroups: [] });
   for (const template of templates) {
@@ -5874,7 +6042,7 @@ function templateRegistryPackages(templates: BlueprintNodeTemplate[], sources: T
       templates: sourceTemplates,
       projectPath: source.projectPath,
       sourceGlobs: source.templateSources,
-      templatePackages: (source.templatePackages ?? []).map((manifest) => `${manifest.name} ${manifest.version}`),
+      templatePackages: (source.templatePackages ?? []).map((manifest) => `${localizedManifestText(manifest.i18n?.name, manifest.name, locale)} ${manifest.version}`),
       builtinGroups: source.builtinGroups
     });
   }
@@ -5893,7 +6061,11 @@ function templateRegistryPackages(templates: BlueprintNodeTemplate[], sources: T
   }));
 }
 
-function templateRegistryTemplates(packages: TemplateRegistryPackageSummary[], packageId: string, query: string, t: Translator): BlueprintNodeTemplate[] {
+function localizedManifestText(text: Record<string, string | undefined> | undefined, fallback: string, locale: Locale): string {
+  return text?.[locale]?.trim() || text?.[fallbackLocale]?.trim() || fallback;
+}
+
+function templateRegistryTemplates(packages: TemplateRegistryPackageSummary[], packageId: string, query: string, t: Translator, locale: Locale): BlueprintNodeTemplate[] {
   const templates = packages.find((summary) => summary.id === packageId)?.templates ?? [];
   const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   return templates
@@ -5902,17 +6074,17 @@ function templateRegistryTemplates(packages: TemplateRegistryPackageSummary[], p
         return true;
       }
       const haystack = [
-        template.id,
-        template.name,
-        template.creationPath,
-        template.description,
+        localizedTemplateSearchText(template, locale),
         template.bodyKind,
-        template.bodyRef,
         templatePackageName(template, t)
       ].join(" ").toLowerCase();
       return tokens.every((token) => haystack.includes(token));
     })
-    .sort((left, right) => left.creationPath.localeCompare(right.creationPath) || left.name.localeCompare(right.name));
+    .sort((left, right) => {
+      const leftText = localizedTemplateText(left, locale);
+      const rightText = localizedTemplateText(right, locale);
+      return leftText.creationPath.localeCompare(rightText.creationPath) || leftText.name.localeCompare(rightText.name);
+    });
 }
 
 function templateMatchesRegistrySource(template: BlueprintNodeTemplate, source: TemplateRegistrySourceSummary): boolean {
@@ -6029,13 +6201,21 @@ function isCompatiblePortType(sourcePort: DragPort, port: BlueprintPortDefinitio
   return port.flowKind === sourcePort.flowKind && (port.type === sourcePort.type || port.type === "unknown" || sourcePort.type === "unknown");
 }
 
-function pinCreationTargetTitle(sourcePort: DragPort, targetPort: BlueprintPortDefinition, t: Translator): string {
+function pinCreationTargetTitle(
+  sourcePort: DragPort,
+  targetPort: BlueprintPortDefinition,
+  t: Translator,
+  targetTemplate: BlueprintNodeTemplate | undefined,
+  locale: Locale,
+  nodeLabelMode: NodeLabelMode
+): string {
   const sourceDirection = sourcePort.direction === "output" ? "output" : "input";
   const targetDirection = sourcePort.direction === "output" ? "input" : "output";
-  return `${t("nodeCreation.fromPin", { direction: sourceDirection, flowKind: sourcePort.flowKind })} ${sourcePort.type} ${t("nodeCreation.willConnectTo", { direction: targetDirection, port: targetPort.name })}: ${targetPort.type}`;
+  const targetPortText = displayPortText(targetTemplate, targetPort, locale, nodeLabelMode);
+  return `${t("nodeCreation.fromPin", { direction: sourceDirection, flowKind: sourcePort.flowKind })} ${sourcePort.type} ${t("nodeCreation.willConnectTo", { direction: targetDirection, port: targetPortText.name })}: ${targetPort.type}`;
 }
 
-function templateScore(template: BlueprintNodeTemplate, normalizedSearch: string, sourcePort: DragPort | undefined, prefs: NodePalettePrefs): number {
+function templateScore(template: BlueprintNodeTemplate, normalizedSearch: string, sourcePort: DragPort | undefined, prefs: NodePalettePrefs, locale: Locale): number {
   let score = 0;
   const favoriteIndex = prefs.favoriteTemplateIds.indexOf(template.id);
   if (favoriteIndex >= 0) {
@@ -6049,8 +6229,9 @@ function templateScore(template: BlueprintNodeTemplate, normalizedSearch: string
     score += compatiblePortScore(template, sourcePort);
   }
   if (normalizedSearch) {
-    const name = template.name.toLowerCase();
-    const path = template.creationPath.toLowerCase();
+    const templateText = localizedTemplateText(template, locale);
+    const name = templateText.name.toLowerCase();
+    const path = templateText.creationPath.toLowerCase();
     if (name === normalizedSearch) {
       score += 120;
     } else if (name.startsWith(normalizedSearch)) {

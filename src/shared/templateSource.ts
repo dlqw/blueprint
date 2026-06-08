@@ -1,5 +1,5 @@
 import * as ts from "typescript";
-import { BlueprintNodeTemplate, BlueprintValueType, createPort } from "./blueprint";
+import { BlueprintNodeTemplate, BlueprintTemplateLocalization, BlueprintValueType, createPort } from "./blueprint";
 
 export function extractBlueprintTemplatesFromTypeScript(sourceText: string, sourcePath: string): BlueprintNodeTemplate[] {
   const sourceFile = ts.createSourceFile(sourcePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
@@ -37,6 +37,7 @@ export function extractBlueprintTemplatesFromTypeScript(sourceText: string, sour
         controlOutputs: [],
         bodyKind: "typescriptFunction",
         bodyRef: `${sourcePath}#${className}.${methodName}`,
+        ...(metadata.i18n ? { i18n: metadata.i18n } : {}),
         metadata: {
           source: sourcePath,
           exportName: className,
@@ -49,7 +50,7 @@ export function extractBlueprintTemplatesFromTypeScript(sourceText: string, sour
   return templates;
 }
 
-function blueprintNodeMetadata(method: ts.MethodDeclaration): { name: string; path: string; description: string } | undefined {
+function blueprintNodeMetadata(method: ts.MethodDeclaration): { name: string; path: string; description: string; i18n?: BlueprintTemplateLocalization } | undefined {
   const decorators = ts.canHaveDecorators(method) ? ts.getDecorators(method) ?? [] : [];
   for (const decorator of decorators) {
     const expression = decorator.expression;
@@ -65,10 +66,12 @@ function blueprintNodeMetadata(method: ts.MethodDeclaration): { name: string; pa
     if (!name || !path) {
       continue;
     }
+    const i18n = localizationProperty(metadata, "i18n");
     return {
       name,
       path,
-      description: stringProperty(metadata, "description") ?? ""
+      description: stringProperty(metadata, "description") ?? "",
+      ...(i18n ? { i18n } : {})
     };
   }
   return undefined;
@@ -92,6 +95,77 @@ function stringProperty(object: ts.ObjectLiteralExpression, name: string): strin
     }
   }
   return undefined;
+}
+
+function localizationProperty(object: ts.ObjectLiteralExpression, name: string): BlueprintTemplateLocalization | undefined {
+  const initializer = objectPropertyInitializer(object, name);
+  if (!initializer || !ts.isObjectLiteralExpression(initializer)) {
+    return undefined;
+  }
+  const localization: BlueprintTemplateLocalization = {};
+  for (const localeProperty of initializer.properties) {
+    if (!ts.isPropertyAssignment(localeProperty) || !ts.isObjectLiteralExpression(localeProperty.initializer)) {
+      continue;
+    }
+    const locale = propertyNameText(localeProperty.name);
+    if (!locale) {
+      continue;
+    }
+    const entry = localeProperty.initializer;
+    assignLocalizedText(localization, "name", locale, stringProperty(entry, "name"));
+    assignLocalizedText(localization, "creationPath", locale, stringProperty(entry, "path") ?? stringProperty(entry, "creationPath"));
+    assignLocalizedText(localization, "description", locale, stringProperty(entry, "description"));
+    const ports = objectPropertyInitializer(entry, "ports");
+    if (ports && ts.isObjectLiteralExpression(ports)) {
+      for (const portProperty of ports.properties) {
+        if (!ts.isPropertyAssignment(portProperty) || !ts.isObjectLiteralExpression(portProperty.initializer)) {
+          continue;
+        }
+        const portId = propertyNameText(portProperty.name);
+        if (!portId) {
+          continue;
+        }
+        const portEntry = portProperty.initializer;
+        const portLocalization = localization.ports?.[portId] ?? {};
+        const nameText = stringProperty(portEntry, "name");
+        const descriptionText = stringProperty(portEntry, "description");
+        if (nameText) {
+          portLocalization.name = { ...(portLocalization.name ?? {}), [locale]: nameText };
+        }
+        if (descriptionText) {
+          portLocalization.description = { ...(portLocalization.description ?? {}), [locale]: descriptionText };
+        }
+        if (portLocalization.name || portLocalization.description) {
+          localization.ports = { ...(localization.ports ?? {}), [portId]: portLocalization };
+        }
+      }
+    }
+  }
+  return localization.name || localization.creationPath || localization.description || localization.ports ? localization : undefined;
+}
+
+function objectPropertyInitializer(object: ts.ObjectLiteralExpression, name: string): ts.Expression | undefined {
+  for (const property of object.properties) {
+    if (!ts.isPropertyAssignment(property) || propertyNameText(property.name) !== name) {
+      continue;
+    }
+    return property.initializer;
+  }
+  return undefined;
+}
+
+function propertyNameText(name: ts.PropertyName): string | undefined {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
+    return name.text.trim();
+  }
+  return undefined;
+}
+
+function assignLocalizedText(localization: BlueprintTemplateLocalization, field: "name" | "creationPath" | "description", locale: string, value: string | undefined): void {
+  if (!value) {
+    return;
+  }
+  localization[field] = { ...(localization[field] ?? {}), [locale]: value };
 }
 
 function isStaticMember(member: ts.ClassElement): boolean {

@@ -205,7 +205,33 @@
         },
         "bodyKind": { "enum": ["typescriptFunction", "typescriptBuiltin", "blueprintGraph", "macroExpansion"] },
         "bodyRef": { "type": "string" },
+        "i18n": { "$ref": "#/$defs/templateI18n" },
         "metadata": { "type": "object" }
+      },
+      "additionalProperties": true
+    },
+    "localizedText": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "templateI18n": {
+      "type": "object",
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "name": { "$ref": "#/$defs/localizedText" },
+        "creationPath": { "$ref": "#/$defs/localizedText" },
+        "description": { "$ref": "#/$defs/localizedText" },
+        "ports": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "name": { "$ref": "#/$defs/localizedText" },
+              "description": { "$ref": "#/$defs/localizedText" }
+            },
+            "additionalProperties": true
+          }
+        }
       },
       "additionalProperties": true
     },

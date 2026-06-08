@@ -42,7 +42,7 @@ describe("Blueprint webview App", () => {
 
   it("defaults editor settings to Chinese when no language preference exists", async () => {
     const { container } = renderAppWithGraph(sampleGraph(), { defaultLanguage: false });
-    await screen.findAllByText("Function Entry");
+    await screen.findAllByText("函数入口");
 
     expect(screen.getByPlaceholderText("查找节点")).toBeInTheDocument();
     expect(screen.getByText("我的蓝图")).toBeInTheDocument();
@@ -62,6 +62,46 @@ describe("Blueprint webview App", () => {
     expect(screen.getByRole("dialog", { name: "编辑器设置" })).toBeInTheDocument();
     expect(screen.getByText("语言")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "中文" })).toHaveClass("active");
+  });
+
+  it("localizes built-in node labels, template search, display modes, and runtime trace labels", async () => {
+    const { container } = renderAppWithGraph(sampleGraph(), { defaultLanguage: false });
+    await screen.findAllByText("函数入口");
+    expect(screen.getAllByText("日志").length).toBeGreaterThan(0);
+
+    const canvas = container.querySelector(".canvas") as HTMLElement;
+    expect(canvas).toBeTruthy();
+    fireEvent.contextMenu(canvas, { clientX: 320, clientY: 220 });
+    const search = await screen.findByPlaceholderText("搜索节点模板");
+    fireEvent.change(search, { target: { value: "日志" } });
+    expect((await screen.findAllByText("日志")).length).toBeGreaterThan(0);
+    fireEvent.change(search, { target: { value: "Log" } });
+    expect((await screen.findAllByText("日志")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Esc" }));
+
+    fireEvent.click(screen.getByTitle("编辑器设置"));
+    fireEvent.click(screen.getByRole("button", { name: "原始" }));
+    await screen.findAllByText("Function Entry");
+    expect(screen.getAllByText("Log").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "双标签" }));
+    await screen.findAllByText("函数入口 / Function Entry");
+
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        type: "runtimeResult",
+        ok: false,
+        message: "Boom",
+        stdout: "",
+        stderr: "Boom",
+        durationMs: 12,
+        traces: [
+          { graphId: "test", nodeId: "log1", nodeName: "Log", status: "error", timestamp: 1 }
+        ]
+      }
+    }));
+
+    expect((await screen.findAllByText("日志 / Log (log1)")).length).toBeGreaterThan(0);
+    expect((hostState as { runtimeHistory?: { entries?: Array<{ traces: Array<{ nodeName?: string }> }> } }).runtimeHistory?.entries?.[0]?.traces[0].nodeName).toBe("Log");
   });
 
   it("loads a graph, renders nodes, and shows inspector fields", async () => {
@@ -664,6 +704,15 @@ describe("Blueprint webview App", () => {
           projectPath: "D:/Project/Gameplay/Gameplay.bproj",
           projectName: "Gameplay",
           templateSources: ["src/**/*.ts"],
+          templatePackages: [{
+            id: "gameplay.nodes",
+            name: "Gameplay Nodes",
+            version: "1.2.3",
+            templateSources: ["src/**/*.ts"],
+            i18n: {
+              name: { "en-US": "Gameplay Node Pack", "zh-CN": "玩法节点包" }
+            }
+          }],
           builtinGroups: ["Math", "String"]
         }]
       }
@@ -673,6 +722,7 @@ describe("Blueprint webview App", () => {
     expect(await screen.findByRole("dialog", { name: "Template package registry" })).toBeInTheDocument();
     expect(screen.getByTitle("Inspect template package Built-in TypeScript")).toBeInTheDocument();
     fireEvent.click(screen.getByTitle("Inspect template package Gameplay Sources"));
+    expect(screen.getByText("Gameplay Node Pack 1.2.3")).toBeInTheDocument();
     expect(screen.getByText("src/**/*.ts")).toBeInTheDocument();
     expect(screen.getByText("Math, String")).toBeInTheDocument();
     expect(screen.getByTitle("Inspect template Double")).toBeInTheDocument();
@@ -1361,7 +1411,7 @@ describe("Blueprint webview App", () => {
     fireEvent.click(await screen.findByTitle(/Message input is missing/));
     await waitFor(() => {
       expect(container.querySelector(".node.selected .node-header strong")?.textContent).toBe("Log");
-      expect(container.querySelector('button[title="Message: string"]')?.classList.contains("issue-focus")).toBe(true);
+      expect(container.querySelector('button[title^="Message: string"]')?.classList.contains("issue-focus")).toBe(true);
     });
 
     fireEvent.click(await screen.findByTitle(/Control link is broken/));
@@ -1409,7 +1459,7 @@ describe("Blueprint webview App", () => {
     fireEvent.click(await screen.findByTitle(/Gameplay\/graphs\/main\.bpgraph/));
     await waitFor(() => {
       expect(container.querySelector(".node.selected .node-header strong")?.textContent).toBe("Log");
-      expect(container.querySelector('button[title="Message: string"]')?.classList.contains("issue-focus")).toBe(true);
+      expect(container.querySelector('button[title^="Message: string"]')?.classList.contains("issue-focus")).toBe(true);
     });
   });
 
@@ -2068,7 +2118,7 @@ describe("Blueprint webview App", () => {
     await screen.findAllByText("Function Entry");
 
     const canvas = container.querySelector(".canvas");
-    const entryThenPort = container.querySelector('button[title="Then: exec"]');
+    const entryThenPort = container.querySelector('button[title^="Then: exec"]');
     expect(canvas).toBeTruthy();
     expect(entryThenPort).toBeTruthy();
 
@@ -2096,9 +2146,9 @@ describe("Blueprint webview App", () => {
     const { container } = renderAppWithGraph(disconnectedGraph());
     await screen.findAllByText("Function Entry");
 
-    const entryThenPort = container.querySelector('button[title="Then: exec"]');
-    const logExecPort = container.querySelector('button[title="Exec: exec"]');
-    const logMessagePort = container.querySelector('button[title="Message: string"]');
+    const entryThenPort = container.querySelector('button[title^="Then: exec"]');
+    const logExecPort = container.querySelector('button[title^="Exec: exec"]');
+    const logMessagePort = container.querySelector('button[title^="Message: string"]');
     expect(entryThenPort).toBeTruthy();
     expect(logExecPort).toBeTruthy();
     expect(logMessagePort).toBeTruthy();
@@ -2136,7 +2186,7 @@ describe("Blueprint webview App", () => {
     const { container } = renderAppWithGraph(sampleGraph());
     await screen.findAllByText("Function Entry");
 
-    const logExecPort = container.querySelector('button[title="Exec: exec"]');
+    const logExecPort = container.querySelector('button[title^="Exec: exec"]');
     expect(logExecPort).toBeTruthy();
     firePointer(logExecPort as Element, "pointerdown", { clientX: 420, clientY: 176, button: 0, altKey: true });
 
@@ -2152,7 +2202,7 @@ describe("Blueprint webview App", () => {
     const { container } = renderAppWithGraph(graphWithSecondLogTarget());
     await screen.findAllByText("Function Entry");
 
-    const messagePorts = container.querySelectorAll('button[title="Message: string"]');
+    const messagePorts = container.querySelectorAll('button[title^="Message: string"]');
     expect(messagePorts).toHaveLength(3);
 
     firePointer(messagePorts[1], "pointerdown", { clientX: 420, clientY: 184, button: 0, ctrlKey: true });
@@ -2184,7 +2234,7 @@ describe("Blueprint webview App", () => {
     await screen.findAllByText("Function Entry");
 
     const canvas = container.querySelector(".canvas");
-    const messagePorts = container.querySelectorAll('button[title="Message: string"]');
+    const messagePorts = container.querySelectorAll('button[title^="Message: string"]');
     expect(canvas).toBeTruthy();
     expect(messagePorts).toHaveLength(3);
 
@@ -2205,7 +2255,7 @@ describe("Blueprint webview App", () => {
     const { container } = renderAppWithGraph(sampleGraph());
     await screen.findAllByText("Function Entry");
 
-    const entryThenPort = container.querySelector('button[title="Then: exec"]');
+    const entryThenPort = container.querySelector('button[title^="Then: exec"]');
     expect(entryThenPort).toBeTruthy();
     fireEvent.contextMenu(entryThenPort as Element, { clientX: 340, clientY: 176 });
 

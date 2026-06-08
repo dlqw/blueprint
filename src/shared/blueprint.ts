@@ -2,6 +2,18 @@ export type FlowKind = "data" | "control";
 export type PortDirection = "input" | "output";
 export type PortEditor = "text" | "number" | "boolean" | "select" | "json" | "none";
 export type TemplateBodyKind = "typescriptFunction" | "typescriptBuiltin" | "blueprintGraph" | "macroExpansion";
+export type LocalizedText = Partial<Record<string, string>>;
+
+export interface BlueprintTemplateLocalization {
+  key?: string;
+  name?: LocalizedText;
+  creationPath?: LocalizedText;
+  description?: LocalizedText;
+  ports?: Record<string, {
+    name?: LocalizedText;
+    description?: LocalizedText;
+  }>;
+}
 
 export interface BlueprintSolution {
   format: "blueprint-solution";
@@ -44,6 +56,10 @@ export interface BlueprintTemplatePackageManifest {
   description?: string;
   templateSources: string[];
   builtinGroups?: string[];
+  i18n?: {
+    name?: LocalizedText;
+    description?: LocalizedText;
+  };
 }
 
 export interface BlueprintProjectDebugSettings {
@@ -144,6 +160,7 @@ export interface BlueprintNodeTemplate {
   controlOutputs: BlueprintPortDefinition[];
   bodyKind: TemplateBodyKind;
   bodyRef: string;
+  i18n?: BlueprintTemplateLocalization;
   metadata?: Record<string, unknown>;
 }
 

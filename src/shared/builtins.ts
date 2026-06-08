@@ -12,7 +12,8 @@ export function getBuiltinTemplates(): BlueprintNodeTemplate[] {
       controlInputs: [],
       controlOutputs: [createPort("then", "Then", "output", "control", "exec", "Next execution step.", "none")],
       bodyKind: "typescriptBuiltin",
-      bodyRef: "control.entry"
+      bodyRef: "control.entry",
+      i18n: builtinI18n("builtin.control.entry")
     },
     {
       id: "builtin.control.end",
@@ -24,7 +25,8 @@ export function getBuiltinTemplates(): BlueprintNodeTemplate[] {
       controlInputs: [createPort("exec", "Exec", "input", "control", "exec", "Execution input.", "none")],
       controlOutputs: [],
       bodyKind: "typescriptBuiltin",
-      bodyRef: "control.end"
+      bodyRef: "control.end",
+      i18n: builtinI18n("builtin.control.end")
     },
     {
       id: "builtin.control.branch",
@@ -39,7 +41,8 @@ export function getBuiltinTemplates(): BlueprintNodeTemplate[] {
         createPort("false", "False", "output", "control", "exec", "False execution path.", "none")
       ],
       bodyKind: "typescriptBuiltin",
-      bodyRef: "control.branch"
+      bodyRef: "control.branch",
+      i18n: builtinI18n("builtin.control.branch")
     },
     {
       id: "builtin.control.forRange",
@@ -57,7 +60,8 @@ export function getBuiltinTemplates(): BlueprintNodeTemplate[] {
         createPort("completed", "Completed", "output", "control", "exec", "After loop execution.", "none")
       ],
       bodyKind: "typescriptBuiltin",
-      bodyRef: "control.forRange"
+      bodyRef: "control.forRange",
+      i18n: builtinI18n("builtin.control.forRange")
     },
     {
       id: "builtin.routing.controlHub",
@@ -70,6 +74,7 @@ export function getBuiltinTemplates(): BlueprintNodeTemplate[] {
       controlOutputs: [createPort("then", "Then", "output", "control", "exec", "Next execution step.", "none")],
       bodyKind: "typescriptBuiltin",
       bodyRef: "routing.controlHub",
+      i18n: builtinI18n("builtin.routing.controlHub"),
       metadata: { routingHub: true }
     },
     {
@@ -83,6 +88,7 @@ export function getBuiltinTemplates(): BlueprintNodeTemplate[] {
       controlOutputs: [],
       bodyKind: "typescriptBuiltin",
       bodyRef: "routing.dataHub",
+      i18n: builtinI18n("builtin.routing.dataHub"),
       metadata: { routingHub: true }
     },
     {
@@ -95,7 +101,8 @@ export function getBuiltinTemplates(): BlueprintNodeTemplate[] {
       controlInputs: [],
       controlOutputs: [],
       bodyKind: "typescriptBuiltin",
-      bodyRef: "blackboard.get"
+      bodyRef: "blackboard.get",
+      i18n: builtinI18n("builtin.blackboard.get")
     },
     {
       id: "builtin.blackboard.set",
@@ -110,7 +117,8 @@ export function getBuiltinTemplates(): BlueprintNodeTemplate[] {
       controlInputs: [createPort("exec", "Exec", "input", "control", "exec", "Execution input.", "none")],
       controlOutputs: [createPort("then", "Then", "output", "control", "exec", "Next execution step.", "none")],
       bodyKind: "typescriptBuiltin",
-      bodyRef: "blackboard.set"
+      bodyRef: "blackboard.set",
+      i18n: builtinI18n("builtin.blackboard.set")
     },
     {
       id: "builtin.debug.log",
@@ -122,7 +130,8 @@ export function getBuiltinTemplates(): BlueprintNodeTemplate[] {
       controlInputs: [createPort("exec", "Exec", "input", "control", "exec", "Execution input.", "none")],
       controlOutputs: [createPort("then", "Then", "output", "control", "exec", "Next execution step.", "none")],
       bodyKind: "typescriptBuiltin",
-      bodyRef: "console.log"
+      bodyRef: "console.log",
+      i18n: builtinI18n("builtin.debug.log")
     },
     {
       id: "builtin.math.add",
@@ -137,7 +146,8 @@ export function getBuiltinTemplates(): BlueprintNodeTemplate[] {
       controlInputs: [],
       controlOutputs: [],
       bodyKind: "typescriptBuiltin",
-      bodyRef: "math.add"
+      bodyRef: "math.add",
+      i18n: builtinI18n("builtin.math.add")
     },
     {
       id: "builtin.math.clamp",
@@ -153,7 +163,8 @@ export function getBuiltinTemplates(): BlueprintNodeTemplate[] {
       controlInputs: [],
       controlOutputs: [],
       bodyKind: "typescriptBuiltin",
-      bodyRef: "Math.min(Math.max(value, min), max)"
+      bodyRef: "Math.min(Math.max(value, min), max)",
+      i18n: builtinI18n("builtin.math.clamp")
     },
     {
       id: "builtin.string.concat",
@@ -168,7 +179,8 @@ export function getBuiltinTemplates(): BlueprintNodeTemplate[] {
       controlInputs: [],
       controlOutputs: [],
       bodyKind: "typescriptBuiltin",
-      bodyRef: "string.concat"
+      bodyRef: "string.concat",
+      i18n: builtinI18n("builtin.string.concat")
     },
     {
       id: "builtin.json.stringify",
@@ -180,7 +192,12 @@ export function getBuiltinTemplates(): BlueprintNodeTemplate[] {
       controlInputs: [],
       controlOutputs: [],
       bodyKind: "typescriptBuiltin",
-      bodyRef: "JSON.stringify"
+      bodyRef: "JSON.stringify",
+      i18n: builtinI18n("builtin.json.stringify")
     }
   ];
+}
+
+function builtinI18n(id: string): { key: string } {
+  return { key: `nodeTemplate.${id}` };
 }
