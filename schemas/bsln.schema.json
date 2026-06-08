@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Blueprint Solution",
+  "type": "object",
+  "required": ["format", "version", "name", "projects"],
+  "properties": {
+    "format": { "const": "blueprint-solution" },
+    "version": { "const": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "projects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "path"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "path": { "type": "string", "pattern": "\\.bproj$" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

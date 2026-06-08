@@ -1,0 +1,11 @@
+{
+  "format": "blueprint-solution",
+  "version": 1,
+  "name": "BlueprintSolution",
+  "projects": [
+    {
+      "name": "Gameplay",
+      "path": "Gameplay/Gameplay.bproj"
+    }
+  ]
+}

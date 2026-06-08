@@ -1,0 +1,109 @@
+{
+  "format": "blueprint-graph",
+  "version": 1,
+  "id": "format-score",
+  "name": "FormatScoreBlueprint",
+  "description": "Formats a numeric score through a blueprint function signature.",
+  "templateMetadata": {
+    "creationPath": "Blueprints",
+    "inputs": [
+      {
+        "id": "score",
+        "name": "Score",
+        "direction": "input",
+        "flowKind": "data",
+        "type": "number",
+        "description": "Score to format.",
+        "editor": "number",
+        "defaultValue": 0
+      }
+    ],
+    "outputs": [
+      {
+        "id": "message",
+        "name": "Message",
+        "direction": "output",
+        "flowKind": "data",
+        "type": "string",
+        "description": "Formatted score message.",
+        "editor": "none"
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "entry",
+      "templateId": "builtin.control.entry",
+      "position": {
+        "x": 80,
+        "y": 120
+      },
+      "inputBindings": {}
+    },
+    {
+      "id": "format1",
+      "templateId": "ts.TypeScript.String.Format.Score",
+      "position": {
+        "x": 420,
+        "y": 64
+      },
+      "inputBindings": {
+        "score": {
+          "portId": "score",
+          "sourceKind": "link",
+          "linkId": "link-entry-format"
+        }
+      }
+    },
+    {
+      "id": "end",
+      "templateId": "builtin.control.end",
+      "position": {
+        "x": 760,
+        "y": 120
+      },
+      "inputBindings": {
+        "message": {
+          "portId": "message",
+          "sourceKind": "link",
+          "linkId": "link-format-end"
+        }
+      }
+    }
+  ],
+  "links": [
+    {
+      "id": "link-entry-end",
+      "fromNodeId": "entry",
+      "fromPortId": "then",
+      "toNodeId": "end",
+      "toPortId": "exec",
+      "flowKind": "control"
+    },
+    {
+      "id": "link-entry-format",
+      "fromNodeId": "entry",
+      "fromPortId": "score",
+      "toNodeId": "format1",
+      "toPortId": "score",
+      "flowKind": "data",
+      "contextVariableId": "ctx-entry-format"
+    },
+    {
+      "id": "link-format-end",
+      "fromNodeId": "format1",
+      "fromPortId": "result",
+      "toNodeId": "end",
+      "toPortId": "message",
+      "flowKind": "data",
+      "contextVariableId": "ctx-format-end"
+    }
+  ],
+  "layout": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "zoom": 1
+    }
+  }
+}

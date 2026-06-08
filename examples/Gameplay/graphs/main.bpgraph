@@ -1,0 +1,206 @@
+{
+  "format": "blueprint-graph",
+  "version": 1,
+  "id": "main",
+  "name": "Main",
+  "description": "Sample blueprint function with TypeScript mapped data flow.",
+  "templateMetadata": {
+    "creationPath": "Blueprints",
+    "inputs": [],
+    "outputs": []
+  },
+  "nodes": [
+    {
+      "id": "entry",
+      "templateId": "builtin.control.entry",
+      "position": {
+        "x": 80,
+        "y": 120
+      },
+      "inputBindings": {}
+    },
+    {
+      "id": "double1",
+      "templateId": "ts.TypeScript.Math.Double",
+      "position": {
+        "x": 340,
+        "y": 36
+      },
+      "inputBindings": {
+        "value": {
+          "portId": "value",
+          "sourceKind": "literal",
+          "literalValue": 21
+        }
+      }
+    },
+    {
+      "id": "setScore1",
+      "templateId": "builtin.blackboard.set",
+      "position": {
+        "x": 640,
+        "y": 196
+      },
+      "inputBindings": {
+        "key": {
+          "portId": "key",
+          "sourceKind": "literal",
+          "literalValue": "score"
+        },
+        "value": {
+          "portId": "value",
+          "sourceKind": "link",
+          "linkId": "link-double-set"
+        }
+      }
+    },
+    {
+      "id": "getScore1",
+      "templateId": "builtin.blackboard.get",
+      "position": {
+        "x": 640,
+        "y": -124
+      },
+      "inputBindings": {
+        "key": {
+          "portId": "key",
+          "sourceKind": "literal",
+          "literalValue": "score"
+        }
+      }
+    },
+    {
+      "id": "format1",
+      "templateId": "graph.format-score",
+      "position": {
+        "x": 640,
+        "y": 36
+      },
+      "inputBindings": {
+        "score": {
+          "portId": "score",
+          "sourceKind": "link",
+          "linkId": "link-get-format"
+        }
+      }
+    },
+    {
+      "id": "traceMacro1",
+      "templateId": "macro.trace-macro",
+      "position": {
+        "x": 360,
+        "y": 196
+      },
+      "inputBindings": {}
+    },
+    {
+      "id": "log1",
+      "templateId": "builtin.debug.log",
+      "position": {
+        "x": 640,
+        "y": 196
+      },
+      "inputBindings": {
+        "message": {
+          "portId": "message",
+          "sourceKind": "link",
+          "linkId": "link-format-log"
+        }
+      }
+    },
+    {
+      "id": "announce1",
+      "templateId": "graph.announce",
+      "position": {
+        "x": 980,
+        "y": 196
+      },
+      "inputBindings": {}
+    },
+    {
+      "id": "end",
+      "templateId": "builtin.control.end",
+      "position": {
+        "x": 1320,
+        "y": 196
+      },
+      "inputBindings": {}
+    }
+  ],
+  "links": [
+    {
+      "id": "link-entry-log",
+      "fromNodeId": "entry",
+      "fromPortId": "then",
+      "toNodeId": "traceMacro1",
+      "toPortId": "exec",
+      "flowKind": "control"
+    },
+    {
+      "id": "link-trace-log",
+      "fromNodeId": "traceMacro1",
+      "fromPortId": "then",
+      "toNodeId": "setScore1",
+      "toPortId": "exec",
+      "flowKind": "control"
+    },
+    {
+      "id": "link-set-log",
+      "fromNodeId": "setScore1",
+      "fromPortId": "then",
+      "toNodeId": "log1",
+      "toPortId": "exec",
+      "flowKind": "control"
+    },
+    {
+      "id": "link-log-end",
+      "fromNodeId": "log1",
+      "fromPortId": "then",
+      "toNodeId": "announce1",
+      "toPortId": "exec",
+      "flowKind": "control"
+    },
+    {
+      "id": "link-announce-end",
+      "fromNodeId": "announce1",
+      "fromPortId": "then",
+      "toNodeId": "end",
+      "toPortId": "exec",
+      "flowKind": "control"
+    },
+    {
+      "id": "link-double-set",
+      "fromNodeId": "double1",
+      "fromPortId": "result",
+      "toNodeId": "setScore1",
+      "toPortId": "value",
+      "flowKind": "data",
+      "contextVariableId": "ctx-double-set"
+    },
+    {
+      "id": "link-get-format",
+      "fromNodeId": "getScore1",
+      "fromPortId": "value",
+      "toNodeId": "format1",
+      "toPortId": "score",
+      "flowKind": "data",
+      "contextVariableId": "ctx-get-format"
+    },
+    {
+      "id": "link-format-log",
+      "fromNodeId": "format1",
+      "fromPortId": "message",
+      "toNodeId": "log1",
+      "toPortId": "message",
+      "flowKind": "data",
+      "contextVariableId": "ctx-format-log"
+    }
+  ],
+  "layout": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "zoom": 1
+    }
+  }
+}

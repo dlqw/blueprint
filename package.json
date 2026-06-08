@@ -1,0 +1,50 @@
+{
+  "name": "blueprint-ide",
+  "displayName": "Blueprint IDE",
+  "description": "UE-style visual blueprint IDE for TypeScript projects.",
+  "version": "0.1.0",
+  "license": "UNLICENSED",
+  "scripts": {
+    "clean": "rimraf dist",
+    "compile:shared": "tsc -p tsconfig.shared.json",
+    "compile:desktop": "vite build --config vite.desktop.config.ts",
+    "build": "npm run compile:shared && npm run compile:desktop",
+    "desktop:dev": "vite --config vite.desktop.config.ts --host 127.0.0.1 --port 1420",
+    "desktop:dev:tauri": "node scripts/desktop-dev-for-tauri.cjs",
+    "desktop:build": "npm run build",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "tauri:check": "node scripts/tauri-check.cjs",
+    "test:packaged-persistence": "node scripts/packaged-restart-persistence-check.cjs",
+    "test:packaged-profile": "node scripts/packaged-large-graph-profile.cjs",
+    "smoke": "npm run compile:shared && node scripts/smoke-compile-example.cjs",
+    "playwright:install": "playwright install chromium",
+    "test:layout": "playwright test",
+    "test:webview": "vitest run",
+    "typecheck": "tsc -p tsconfig.shared.json --noEmit && tsc -p tsconfig.desktop.json --noEmit"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.0",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@tauri-apps/cli": "^2.11.2",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.17",
+    "@types/react-dom": "^18.3.5",
+    "jsdom": "^25.0.1",
+    "rimraf": "^6.0.1",
+    "vite": "^6.0.5",
+    "vitest": "^2.1.8"
+  }
+}

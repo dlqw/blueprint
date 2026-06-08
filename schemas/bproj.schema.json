@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Blueprint Project",
+  "type": "object",
+  "required": ["format", "version", "name", "graphs", "templateSources", "compiler"],
+  "properties": {
+    "format": { "const": "blueprint-project" },
+    "version": { "const": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "graphs": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "\\.bpgraph$" }
+    },
+    "templateSources": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "builtins": {
+      "type": "object",
+      "properties": {
+        "typescriptStandardLibrary": { "type": "boolean" },
+        "groups": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "blackboard": {
+      "type": "object",
+      "properties": {
+        "scope": { "enum": ["project", "blueprint", "solution"] },
+        "variables": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "type", "description"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "name": { "type": "string", "minLength": 1 },
+              "type": { "enum": ["string", "number", "boolean", "bigint", "null", "undefined", "json", "unknown"] },
+              "defaultValue": {},
+              "description": { "type": "string" }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "debug": {
+      "type": "object",
+      "properties": {
+        "breakpointPresets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "breakpoints"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "name": { "type": "string", "minLength": 1 },
+              "description": { "type": "string" },
+              "breakpoints": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["graphPath", "nodeId"],
+                  "properties": {
+                    "graphPath": { "type": "string", "pattern": "\\.bpgraph$" },
+                    "nodeId": { "type": "string", "minLength": 1 },
+                    "enabled": { "type": "boolean" },
+                    "condition": { "type": "string" }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "macros": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "\\.bpgraph$" }
+    },
+    "compiler": {
+      "type": "object",
+      "required": ["outDir", "module", "target", "runtime"],
+      "properties": {
+        "outDir": { "type": "string", "minLength": 1 },
+        "module": { "type": "string", "minLength": 1 },
+        "target": { "type": "string", "minLength": 1 },
+        "runtime": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

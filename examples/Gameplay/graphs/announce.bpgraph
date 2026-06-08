@@ -1,0 +1,72 @@
+{
+  "format": "blueprint-graph",
+  "version": 1,
+  "id": "announce",
+  "name": "Announce",
+  "description": "Reusable blueprint called by Main.",
+  "templateMetadata": {
+    "creationPath": "Blueprints",
+    "inputs": [],
+    "outputs": []
+  },
+  "nodes": [
+    {
+      "id": "entry",
+      "templateId": "builtin.control.entry",
+      "position": {
+        "x": 80,
+        "y": 120
+      },
+      "inputBindings": {}
+    },
+    {
+      "id": "log1",
+      "templateId": "builtin.debug.log",
+      "position": {
+        "x": 420,
+        "y": 120
+      },
+      "inputBindings": {
+        "message": {
+          "portId": "message",
+          "sourceKind": "literal",
+          "literalValue": "Announce blueprint called"
+        }
+      }
+    },
+    {
+      "id": "end",
+      "templateId": "builtin.control.end",
+      "position": {
+        "x": 760,
+        "y": 120
+      },
+      "inputBindings": {}
+    }
+  ],
+  "links": [
+    {
+      "id": "link-entry-log",
+      "fromNodeId": "entry",
+      "fromPortId": "then",
+      "toNodeId": "log1",
+      "toPortId": "exec",
+      "flowKind": "control"
+    },
+    {
+      "id": "link-log-end",
+      "fromNodeId": "log1",
+      "fromPortId": "then",
+      "toNodeId": "end",
+      "toPortId": "exec",
+      "flowKind": "control"
+    }
+  ],
+  "layout": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "zoom": 1
+    }
+  }
+}

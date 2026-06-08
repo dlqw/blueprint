@@ -1,0 +1,39 @@
+{
+  "format": "blueprint-project",
+  "version": 1,
+  "name": "Gameplay",
+  "graphs": [
+    "graphs/main.bpgraph",
+    "graphs/announce.bpgraph",
+    "graphs/format-score.bpgraph",
+    "graphs/trace-macro.bpgraph"
+  ],
+  "templateSources": [
+    "src/**/*.ts"
+  ],
+  "builtins": {
+    "typescriptStandardLibrary": true,
+    "groups": ["Math", "String", "Array", "Object", "JSON", "Date"]
+  },
+  "blackboard": {
+    "scope": "project",
+    "variables": [
+      {
+        "id": "score",
+        "name": "Score",
+        "type": "number",
+        "defaultValue": 0,
+        "description": "Current score."
+      }
+    ]
+  },
+  "macros": [
+    "graphs/trace-macro.bpgraph"
+  ],
+  "compiler": {
+    "outDir": "generated",
+    "module": "ESNext",
+    "target": "ES2022",
+    "runtime": "tsx"
+  }
+}
