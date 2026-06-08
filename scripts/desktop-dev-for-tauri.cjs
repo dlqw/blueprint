@@ -26,7 +26,10 @@ async function main() {
   }
 
   const command = process.platform === "win32" ? "npm.cmd" : "npm";
-  const child = spawn(command, ["run", "desktop:dev"], { stdio: "inherit" });
+  const child = spawn(command, ["run", "desktop:dev"], {
+    stdio: "inherit",
+    shell: process.platform === "win32"
+  });
 
   const forward = (signal) => {
     child.kill(signal);
