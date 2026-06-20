@@ -23,6 +23,11 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+async function clickToolbarOverflowAction(title: string | RegExp): Promise<void> {
+  fireEvent.click(screen.getByTitle(/^(工具栏更多|Toolbar overflow)$/));
+  fireEvent.click(await screen.findByTitle(title));
+}
+
 describe("Blueprint webview App", () => {
   it("requests graph loading on mount and can retry if the host does not answer", () => {
     vi.useFakeTimers();
@@ -49,7 +54,9 @@ describe("Blueprint webview App", () => {
     expect(screen.getByText("图大纲")).toBeInTheDocument();
     expect(screen.getByLabelText("画布命令")).toBeInTheDocument();
     expect(screen.getByLabelText("小地图")).toBeInTheDocument();
-    expect(screen.getByTitle("连线模式：曲线")).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("工具栏更多"));
+    expect(await screen.findByTitle("连线模式：曲线")).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("工具栏更多"));
 
     const logNode = container.querySelector('[data-node-id="log1"]');
     expect(logNode).toBeTruthy();
@@ -186,12 +193,12 @@ describe("Blueprint webview App", () => {
     expect(container.querySelector("path.wire")?.getAttribute("d")).toContain(" C ");
 
     const graphChangeCount = postedMessages.filter((message) => message.type === "graphChanged").length;
-    fireEvent.click(screen.getByTitle("Link mode: Spline"));
+    await clickToolbarOverflowAction("Link mode: Spline");
     expect(container.querySelector("path.wire")?.getAttribute("d")).toContain(" L ");
-    fireEvent.click(screen.getByTitle("Link mode: Straight"));
+    await clickToolbarOverflowAction("Link mode: Straight");
     expect(container.querySelector("path.wire")?.getAttribute("d")).toContain(" H ");
     expect(container.querySelector("path.wire")?.getAttribute("d")).toContain(" V ");
-    fireEvent.click(screen.getByTitle("Link mode: Orthogonal"));
+    await clickToolbarOverflowAction("Link mode: Orthogonal");
     expect(container.querySelectorAll("path.wire")).toHaveLength(0);
     fireEvent.click(screen.getByTitle("Show links"));
     expect(container.querySelector("path.wire")?.getAttribute("d")).toContain(" C ");
@@ -206,7 +213,7 @@ describe("Blueprint webview App", () => {
     });
     expect(postedMessages.filter((message) => message.type === "graphChanged")).toHaveLength(graphChangeCount);
 
-    fireEvent.click(screen.getByTitle("Zoom in"));
+    await clickToolbarOverflowAction("Zoom in");
     await waitFor(() => {
       const zoomed = postedMessages.filter((message) => message.type === "graphChanged").at(-1);
       expect(zoomed?.type).toBe("graphChanged");
@@ -214,7 +221,7 @@ describe("Blueprint webview App", () => {
     });
 
     const beforeLockedWheel = postedMessages.filter((message) => message.type === "graphChanged").length;
-    fireEvent.click(screen.getByTitle("Lock viewport"));
+    await clickToolbarOverflowAction("Lock viewport");
     fireEvent.wheel(canvas, { deltaY: -100, clientX: 500, clientY: 300 });
     expect(postedMessages.filter((message) => message.type === "graphChanged")).toHaveLength(beforeLockedWheel);
   });
@@ -394,7 +401,9 @@ describe("Blueprint webview App", () => {
     await screen.findAllByText("Function Entry");
 
     expect(screen.queryByLabelText("Minimap")).not.toBeInTheDocument();
-    expect(screen.getByTitle("Link mode: Orthogonal")).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("Toolbar overflow"));
+    expect(await screen.findByTitle("Link mode: Orthogonal")).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("Toolbar overflow"));
     expect(container.querySelector(".grid")).not.toBeInTheDocument();
     expect(container.querySelector(".shell")).toHaveClass("theme-graphite");
     expect(screen.getByLabelText("Run controls")).toHaveClass("top");
@@ -415,18 +424,21 @@ describe("Blueprint webview App", () => {
     fireEvent.click(screen.getByLabelText("Grid"));
     fireEvent.click(screen.getByLabelText("Snap to grid"));
     fireEvent.click(screen.getByTitle("Place actionbar at top"));
+    fireEvent.click(screen.getByTitle("Align top toolbar center"));
     fireEvent.click(screen.getByTitle("Set link mode: straight"));
     fireEvent.click(screen.getByRole("button", { name: "Graphite" }));
 
     await waitFor(() => {
       expect(container.querySelector(".grid")).not.toBeInTheDocument();
       expect(container.querySelector(".shell")).toHaveClass("theme-graphite");
+      expect(container.querySelector(".topbar")).toHaveClass("toolbar-align-center");
       expect(screen.getByLabelText("Run controls")).toHaveClass("top");
       expect((hostState as { editorPrefs?: Record<string, unknown> }).editorPrefs).toEqual(
         expect.objectContaining({
           gridVisible: false,
           snapToGrid: true,
           actionBarPlacement: "top",
+          toolbarAlignment: "center",
           linkRenderMode: "straight",
           theme: "graphite"
         })
@@ -457,6 +469,7 @@ describe("Blueprint webview App", () => {
           gridVisible: true,
           snapToGrid: false,
           actionBarPlacement: "bottom",
+          toolbarAlignment: "right",
           linkRenderMode: "spline",
           minimapVisible: true,
           language: "zh-CN",
@@ -484,6 +497,7 @@ describe("Blueprint webview App", () => {
         gridVisible: true,
         minimapVisible: true,
         actionBarPlacement: "bottom",
+        toolbarAlignment: "right",
         linkRenderMode: "spline",
         snapToGrid: false,
         theme: "comfy-dark"
@@ -497,6 +511,7 @@ describe("Blueprint webview App", () => {
         minimapVisible: false,
         snapToGrid: true,
         actionBarPlacement: "top",
+        toolbarAlignment: "left",
         linkRenderMode: "orthogonal",
         language: "en-US",
         theme: "high-contrast"
@@ -508,14 +523,15 @@ describe("Blueprint webview App", () => {
       expect(container.querySelector(".grid")).not.toBeInTheDocument();
       expect(container.querySelector(".minimap")).not.toBeInTheDocument();
       expect(container.querySelector(".shell")).toHaveClass("theme-high-contrast");
+      expect(container.querySelector(".topbar")).toHaveClass("toolbar-align-left");
       expect(screen.getByLabelText("Run controls")).toHaveClass("top");
-      expect(screen.getByTitle("Link mode: Orthogonal")).toBeInTheDocument();
       expect((hostState as { editorPrefs?: Record<string, unknown> }).editorPrefs).toEqual(
         expect.objectContaining({
           gridVisible: false,
           minimapVisible: false,
           snapToGrid: true,
           actionBarPlacement: "top",
+          toolbarAlignment: "left",
           linkRenderMode: "orthogonal",
           theme: "high-contrast"
         })
@@ -717,7 +733,7 @@ describe("Blueprint webview App", () => {
         }]
       }
     }));
-    fireEvent.click(screen.getByTitle("Template package registry"));
+    await clickToolbarOverflowAction("Template package registry");
 
     expect(await screen.findByRole("dialog", { name: "Template package registry" })).toBeInTheDocument();
     expect(screen.getByTitle("Inspect template package Built-in TypeScript")).toBeInTheDocument();
@@ -762,7 +778,7 @@ describe("Blueprint webview App", () => {
       data: { type: "loadTemplates", templates: [...getBuiltinTemplates(), typeScriptTemplate()] }
     }));
 
-    fireEvent.click(screen.getByTitle("Template package registry"));
+    await clickToolbarOverflowAction("Template package registry");
     expect(await screen.findByRole("dialog", { name: "Template package registry" })).toBeInTheDocument();
     fireEvent.click(screen.getByTitle("Inspect template package TypeScript Templates"));
     expect(await screen.findByTitle("Inspect template Double")).toBeInTheDocument();
@@ -1116,6 +1132,68 @@ describe("Blueprint webview App", () => {
     expect(await screen.findByText("Generated: Trace_Macro:trace-log")).toBeInTheDocument();
   });
 
+  it("opens referenced blueprint and macro graphs when subgraph nodes are double-clicked", async () => {
+    const graph = {
+      ...sampleGraph(),
+      nodes: [
+        ...sampleGraph().nodes,
+        {
+          id: "format1",
+          templateId: "graph.format-score",
+          position: { x: 680, y: 120 },
+          inputBindings: {}
+        },
+        {
+          id: "traceMacro1",
+          templateId: "macro.trace-macro",
+          position: { x: 960, y: 120 },
+          inputBindings: {}
+        }
+      ]
+    };
+    const { container } = renderAppWithGraph(graph);
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        type: "loadTemplates",
+        templates: [...getBuiltinTemplates(), blueprintGraphTemplate(), macroGraphTemplate()]
+      }
+    }));
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        type: "solutionOutline",
+        solution: {
+          path: "D:/Project/Gameplay/Gameplay.bsln",
+          name: "Gameplay",
+          activeGraphPath: "D:/Project/Gameplay/graphs/main.bpgraph",
+          projects: [{
+            path: "D:/Project/Gameplay/Gameplay.bproj",
+            name: "Gameplay",
+            graphs: [
+              { path: "D:/Project/Gameplay/graphs/main.bpgraph", id: "main", name: "Main", kind: "function" },
+              { path: "D:/Project/Gameplay/graphs/format-score.bpgraph", id: "format-score", name: "Format Score", kind: "function" },
+              { path: "D:/Project/Gameplay/graphs/trace-macro.bpgraph", id: "trace-macro", name: "Trace Macro", kind: "macro" }
+            ]
+          }]
+        }
+      }
+    }));
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-node-id="format1"]')).toBeTruthy();
+    });
+    fireEvent.doubleClick(container.querySelector('[data-node-id="format1"]') as Element);
+    expect(postedMessages.filter((message) => message.type === "requestOpenGraph").at(-1)).toEqual({
+      type: "requestOpenGraph",
+      graphPath: "D:/Project/Gameplay/graphs/format-score.bpgraph"
+    });
+
+    fireEvent.doubleClick(container.querySelector('[data-node-id="traceMacro1"]') as Element);
+    expect(postedMessages.filter((message) => message.type === "requestOpenGraph").at(-1)).toEqual({
+      type: "requestOpenGraph",
+      graphPath: "D:/Project/Gameplay/graphs/trace-macro.bpgraph"
+    });
+  });
+
   it("limits large graph outline rendering while keeping full-node filtering", async () => {
     const { container } = renderAppWithGraph(largeRenderGraph(260));
     await screen.findByText("Graph Outline");
@@ -1408,13 +1486,13 @@ describe("Blueprint webview App", () => {
       }
     }));
 
-    fireEvent.click(await screen.findByTitle(/Message input is missing/));
+    fireEvent.click(await screen.findByRole("button", { name: /warning Message input is missing/ }));
     await waitFor(() => {
       expect(container.querySelector(".node.selected .node-header strong")?.textContent).toBe("Log");
       expect(container.querySelector('button[title^="Message: string"]')?.classList.contains("issue-focus")).toBe(true);
     });
 
-    fireEvent.click(await screen.findByTitle(/Control link is broken/));
+    fireEvent.click(await screen.findByRole("button", { name: /error Control link is broken/ }));
     await waitFor(() => {
       expect(container.querySelector('path[data-link-id="link-entry-log"]')?.classList.contains("selected")).toBe(true);
     });
@@ -1455,8 +1533,9 @@ describe("Blueprint webview App", () => {
       }
     }));
 
-    expect(await screen.findByText("Gameplay/graphs/main.bpgraph · Main · node log1 · port message")).toBeInTheDocument();
-    fireEvent.click(await screen.findByTitle(/Gameplay\/graphs\/main\.bpgraph/));
+    const compileDiagnostic = await screen.findByRole("button", { name: /error Literal for 'Message' does not match string/ });
+    expect(compileDiagnostic).toHaveTextContent("Gameplay/graphs/main.bpgraph · Main · node log1 · port message");
+    fireEvent.click(compileDiagnostic);
     await waitFor(() => {
       expect(container.querySelector(".node.selected .node-header strong")?.textContent).toBe("Log");
       expect(container.querySelector('button[title^="Message: string"]')?.classList.contains("issue-focus")).toBe(true);
@@ -1749,7 +1828,7 @@ describe("Blueprint webview App", () => {
     }));
 
     expect(await screen.findByText("Pending")).toBeInTheDocument();
-    expect(screen.getByTitle("Hide run history (1 running, 2 queued)")).toHaveTextContent("3");
+    expect(screen.getByTitle("Hide run history (1 running, 2 queued)")).toHaveTextContent("History");
     expect(screen.getByTitle("Queued runs")).toHaveTextContent("2 queued");
 
     window.dispatchEvent(new MessageEvent("message", {
@@ -1760,7 +1839,7 @@ describe("Blueprint webview App", () => {
     }));
 
     expect(await screen.findByText("Queued")).toBeInTheDocument();
-    expect(screen.getByTitle("Hide run history (2 queued)")).toHaveTextContent("2");
+    expect(screen.getByTitle("Hide run history (2 queued)")).toHaveTextContent("History");
     expect(screen.getByTitle(/run graph/i)).toBeInTheDocument();
   });
 
@@ -1769,7 +1848,7 @@ describe("Blueprint webview App", () => {
     const { container } = renderAppWithGraph(graph);
     await screen.findAllByText("Function Entry");
 
-    const runtimeToolbar = container.querySelectorAll(".topbar .toolbar .toolbar-group")[3] as HTMLElement;
+    const runtimeToolbar = container.querySelectorAll(".topbar .toolbar .toolbar-group")[2] as HTMLElement;
     fireEvent.click(within(runtimeToolbar).getByTitle("Step run"));
     const runRequest = postedMessages.filter((message) => message.type === "requestRun").at(-1);
     expect(runRequest?.type).toBe("requestRun");
@@ -1798,7 +1877,7 @@ describe("Blueprint webview App", () => {
     renderAppWithGraph(sampleGraph());
     await screen.findAllByText("Function Entry");
 
-    fireEvent.click(screen.getByTitle("Toggle Breakpoint"));
+    fireEvent.click(screen.getByTitle("Add breakpoint to selected node"));
     expect(screen.getByTitle("Breakpoint")).toBeInTheDocument();
     expect(screen.getByText("Breakpoints")).toBeInTheDocument();
     expect((hostState as { breakpoints?: unknown[] }).breakpoints).toEqual([{ nodeId: "entry" }]);
@@ -2430,12 +2509,12 @@ describe("Blueprint webview App", () => {
   });
 
   it("breaks selected node links from the toolbar and clears data bindings", async () => {
-    const { container } = renderAppWithGraph(overlappedGraphWithLongLink());
+    renderAppWithGraph(overlappedGraphWithLongLink());
     await screen.findAllByText("Function Entry");
     fireEvent.click(screen.getByText("log1"));
 
-    const breakLinksToolbar = container.querySelector(".topbar .toolbar .toolbar-secondary") as HTMLElement;
-    const breakLinks = within(breakLinksToolbar).getByTitle("Break Links For Selected Nodes");
+    fireEvent.click(screen.getByTitle("Toolbar overflow"));
+    const breakLinks = await screen.findByTitle("Break Links For Selected Nodes");
     await waitFor(() => expect(breakLinks).not.toBeDisabled());
     fireEvent.click(breakLinks);
 
@@ -2497,7 +2576,7 @@ describe("Blueprint webview App", () => {
     const wire = container.querySelector('path[data-link-id="link-entry-message-log"]');
     expect(wire).toBeTruthy();
     fireEvent.pointerDown(wire as Element, { button: 0 });
-    fireEvent.click(screen.getByTitle(/insert routing hub for selected wire/i));
+    await clickToolbarOverflowAction(/insert routing hub for selected wire/i);
 
     await waitFor(() => {
       const routed = postedMessages.filter((message) => message.type === "graphChanged").at(-1);
@@ -2571,7 +2650,7 @@ describe("Blueprint webview App", () => {
     await waitFor(() => expect(controlWire?.classList.contains("selected")).toBe(true));
     firePointer(dataWire as Element, "pointerdown", { clientX: 360, clientY: 220, button: 0, ctrlKey: true });
     await waitFor(() => expect(container.querySelectorAll("path.wire.selected")).toHaveLength(2));
-    fireEvent.click(screen.getByTitle(/insert routing hub for selected wire/i));
+    await clickToolbarOverflowAction(/insert routing hub for selected wire/i);
 
     await waitFor(() => {
       const routed = postedMessages.filter((message) => message.type === "graphChanged").at(-1);
@@ -2596,13 +2675,15 @@ describe("Blueprint webview App", () => {
     const wire = container.querySelector('path[data-link-id="link-entry-message-log"]');
     expect(wire).toBeTruthy();
     fireEvent.pointerDown(wire as Element, { button: 0 });
-    fireEvent.click(screen.getByTitle(/insert routing hub for selected wire/i));
+    await clickToolbarOverflowAction(/insert routing hub for selected wire/i);
 
     await waitFor(() => {
       expect(postedMessages.filter((message) => message.type === "graphChanged").at(-1)?.graph.nodes.some((node) => node.displayOverrides?.manualRoutingHub === true)).toBe(true);
-      expect(screen.getByTitle(/clean up selected routing hubs/i)).not.toBeDisabled();
     });
-    fireEvent.click(screen.getByTitle(/clean up selected routing hubs/i));
+    fireEvent.click(screen.getByTitle("Toolbar overflow"));
+    const cleanupRoutingHubs = await screen.findByTitle(/clean up selected routing hubs/i);
+    await waitFor(() => expect(cleanupRoutingHubs).not.toBeDisabled());
+    fireEvent.click(cleanupRoutingHubs);
 
     await waitFor(() => {
       const cleaned = postedMessages.filter((message) => message.type === "graphChanged").at(-1);
@@ -2652,7 +2733,7 @@ describe("Blueprint webview App", () => {
 
     const miniItems = container.querySelectorAll(".outline-item");
     fireEvent.click(miniItems[1], { shiftKey: true });
-    fireEvent.click(screen.getByTitle("Create Comment Box"));
+    await clickToolbarOverflowAction("Create Comment Box");
 
     await waitFor(() => {
       const created = postedMessages.filter((message) => message.type === "graphChanged").at(-1);
@@ -2782,7 +2863,7 @@ describe("Blueprint webview App", () => {
       toJSON: () => ({})
     } as DOMRect);
 
-    fireEvent.click(screen.getByTitle("Add Bookmark"));
+    await clickToolbarOverflowAction("Add Bookmark");
 
     await waitFor(() => {
       const created = postedMessages.filter((message) => message.type === "graphChanged").at(-1);
@@ -2834,11 +2915,11 @@ describe("Blueprint webview App", () => {
   });
 
   it("auto-layout separates nodes left-to-right and inserts routing hubs for long links", async () => {
-    const { container } = renderAppWithGraph(overlappedGraphWithLongLink());
+    renderAppWithGraph(overlappedGraphWithLongLink());
     await screen.findAllByText("Function Entry");
 
-    const graphToolbar = container.querySelector(".topbar .toolbar .toolbar-secondary") as HTMLElement;
-    fireEvent.click(within(graphToolbar).getByTitle("Auto Layout"));
+    fireEvent.click(screen.getByTitle("Toolbar overflow"));
+    fireEvent.click(await screen.findByTitle("Auto Layout"));
 
     await waitFor(() => {
       const graphChanged = postedMessages.filter((message) => message.type === "graphChanged").at(-1);
@@ -2967,6 +3048,42 @@ function typeScriptRoundTemplate(): BlueprintNodeTemplate {
       source: "examples/Gameplay/src/mathNodes.ts",
       exportName: "GameplayMathNodes",
       memberName: "round"
+    }
+  };
+}
+
+function blueprintGraphTemplate(): BlueprintNodeTemplate {
+  return {
+    id: "graph.format-score",
+    name: "Format Score",
+    creationPath: "Blueprints/Gameplay",
+    description: "Formats the current score.",
+    inputs: [],
+    outputs: [],
+    controlInputs: [],
+    controlOutputs: [],
+    bodyKind: "blueprintGraph",
+    bodyRef: "examples/Gameplay/graphs/format-score.bpgraph",
+    metadata: {
+      source: "examples/Gameplay/graphs/format-score.bpgraph"
+    }
+  };
+}
+
+function macroGraphTemplate(): BlueprintNodeTemplate {
+  return {
+    id: "macro.trace-macro",
+    name: "Trace Macro",
+    creationPath: "Macros/Debug",
+    description: "Trace macro.",
+    inputs: [],
+    outputs: [],
+    controlInputs: [],
+    controlOutputs: [],
+    bodyKind: "macroExpansion",
+    bodyRef: "examples/Gameplay/graphs/trace-macro.bpgraph",
+    metadata: {
+      source: "examples/Gameplay/graphs/trace-macro.bpgraph"
     }
   };
 }

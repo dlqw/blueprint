@@ -1,13 +1,15 @@
 import * as React from "react";
 import { createRoot } from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
-import { open, save } from "@tauri-apps/plugin-dialog";
-import { Code2, FileJson, FolderOpen, Library, Package as PackageIcon, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
+import { open } from "@tauri-apps/plugin-dialog";
+import { Bug, ChevronDown, ChevronRight, CircleDot, ClipboardPaste, Command, Copy, FileJson, FolderOpen, GitBranch, Maximize2, Minus, Package as PackageIcon, PanelLeft, PanelRight, Play, Plus, Redo2, RefreshCw, Search, Settings, Trash2, Undo2, X } from "lucide-react";
 import { getBuiltinTemplates } from "../shared/builtins";
 import { extractCollapsedUnitToProjectGraph } from "../shared/collapse";
 import {
   BlueprintGraph,
   BlueprintGraphSearchEntry,
+  BlueprintNodeTemplate,
   BlueprintProject,
   BlueprintSolutionGraphSearchIndex,
   BlueprintSolutionOutline,
@@ -26,10 +28,8 @@ import "./desktop.css";
 import { renameBlackboardKeyInGraph, renameBlackboardKeyInProject } from "./blackboardRefactor";
 import { isBlueprintGraph, isBlueprintProject } from "./blueprintFileGuards";
 import { createDesktopWebviewApi, desktopGraphKey, desktopSolutionKey, readJsonStorage, writeJsonStorage } from "./desktopWebviewState";
-import { addProjectTemplateSource, importProjectTemplatePackage, removeProjectTemplateSource } from "./projectTemplateSources";
 import { desktopSampleGraph } from "./sampleGraph";
-import { BlueprintGraphSummary, BlueprintSolutionSummary, tauriBlueprintHost } from "./tauriBlueprintHost";
-import { createWorkflowGraph, getWorkflowTemplates, WorkflowTemplateDefinition } from "./workflowTemplates";
+import { BlueprintGraphSummary, BlueprintLaunchContext, BlueprintSolutionSummary, BlueprintSolutionTemplateId, tauriBlueprintHost } from "./tauriBlueprintHost";
 
 interface BlueprintShellStatus {
   shell: string;
@@ -38,8 +38,10 @@ interface BlueprintShellStatus {
 }
 
 const builtinTemplates = getBuiltinTemplates();
-const workflowTemplates = getWorkflowTemplates();
 const desktopT = createTranslator(defaultLocale);
+const hubWindowSize = new LogicalSize(760, 420);
+const hubWindowMinSize = new LogicalSize(720, 400);
+const workspaceWindowSize = new LogicalSize(1400, 900);
 let activeTemplates = builtinTemplates;
 let activeGraphPath: string | undefined;
 let activeGraph: BlueprintGraph = readStoredGraph() ?? desktopSampleGraph;
@@ -48,13 +50,31 @@ let solutionGraphIndexRequestId = 0;
 let runtimeRunSequence = 0;
 let activeRuntimeRun: PendingRuntimeRun | undefined;
 const pendingRuntimeRuns: PendingRuntimeRun[] = [];
+const desktopRecentSolutionsKey = "blueprint.desktop.recentSolutions";
 let updateSelectedGraphPathFromEditor: ((path: string) => void) | undefined;
 let updateSolutionFromEditor: ((solution: BlueprintSolutionSummary) => void) | undefined;
+
+type DesktopLeftDockTab = "tree" | "run" | "source";
+type DesktopRightDockTab = "commands" | "debug" | "settings" | "inspector";
+type DesktopDockTab = DesktopLeftDockTab | DesktopRightDockTab;
+type DesktopDockSide = "left" | "right";
+
+const desktopDockTabMime = "application/x-blueprint-dock-tab";
+const defaultLeftDockTabs: DesktopDockTab[] = ["tree", "run", "source"];
+const defaultRightDockTabs: DesktopDockTab[] = ["commands", "debug", "settings", "inspector"];
 
 interface PendingRuntimeRun {
   id: string;
   graph: BlueprintGraph;
   graphPath?: string;
+}
+
+interface DesktopRunStatus {
+  phase: "idle" | "compiling" | "running" | "ok" | "error";
+  message: string;
+  stdout?: string;
+  stderr?: string;
+  durationMs?: number;
 }
 
 interface SolutionBlackboardRenameSummary {
@@ -87,6 +107,13 @@ const desktopApi = createDesktopWebviewApi((message) => {
 });
 
 window.blueprintEditorHostApi = desktopApi;
+
+function hasTauriWindowRuntime(): boolean {
+  const internals = (window as typeof window & {
+    __TAURI_INTERNALS__?: { metadata?: { currentWindow?: { label?: string } } };
+  }).__TAURI_INTERNALS__;
+  return Boolean(internals?.metadata?.currentWindow?.label);
+}
 
 function sendToEditor(message: HostToEditorMessage): void {
   window.postMessage(message, "*");
@@ -323,15 +350,31 @@ function readStoredGraph(): BlueprintGraph | undefined {
 
 function readStoredSolution(): BlueprintSolutionSummary | undefined {
   const value = readJsonStorage(desktopSolutionKey);
-  if (
+  return isBlueprintSolutionSummary(value) ? value : undefined;
+}
+
+function isBlueprintSolutionSummary(value: unknown): value is BlueprintSolutionSummary {
+  return Boolean(
     value &&
     typeof value === "object" &&
     typeof (value as { path?: unknown }).path === "string" &&
+    typeof (value as { name?: unknown }).name === "string" &&
     Array.isArray((value as { projects?: unknown }).projects)
-  ) {
-    return value as BlueprintSolutionSummary;
-  }
-  return undefined;
+  );
+}
+
+function readRecentSolutions(): BlueprintSolutionSummary[] {
+  const value = readJsonStorage(desktopRecentSolutionsKey);
+  return Array.isArray(value) ? value.filter(isBlueprintSolutionSummary).slice(0, 8) : [];
+}
+
+function rememberRecentSolution(solution: BlueprintSolutionSummary): BlueprintSolutionSummary[] {
+  const next = [
+    solution,
+    ...readRecentSolutions().filter((candidate) => candidate.path !== solution.path)
+  ].slice(0, 8);
+  writeJsonStorage(desktopRecentSolutionsKey, next);
+  return next;
 }
 
 function publishTemplateRegistrySources(solution: BlueprintSolutionSummary | undefined): void {
@@ -810,6 +853,63 @@ function mergeTemplatesById(templates: typeof activeTemplates): typeof activeTem
   return [...new Map(templates.map((template) => [template.id, template])).values()];
 }
 
+function defaultSolutionNameFromFolder(folderPath: string): string {
+  const name = folderPath.replace(/[\\/]+$/, "").split(/[\\/]/).pop()?.trim();
+  return name || desktopT("desktop.default.solutionName");
+}
+
+function promptValidProjectName(defaultName: string): string | undefined {
+  let nextDefault = defaultName || desktopT("desktop.default.projectName");
+  for (;;) {
+    const projectName = window.prompt(desktopT("desktop.prompt.firstProjectName"), nextDefault)?.trim();
+    if (!projectName) {
+      return undefined;
+    }
+    const validationError = validateProjectName(projectName);
+    if (!validationError) {
+      return projectName;
+    }
+    window.alert(validationError);
+    nextDefault = projectName;
+  }
+}
+
+function validateProjectName(projectName: string): string | undefined {
+  if (!projectName.trim()) {
+    return desktopT("desktop.error.projectNameRequired");
+  }
+  if (projectName.length > 64) {
+    return desktopT("desktop.error.projectNameTooLong");
+  }
+  if (/[<>:"/\\|?*\x00-\x1f]/.test(projectName) || projectName.endsWith(".") || projectName.endsWith(" ")) {
+    return desktopT("desktop.error.projectNameInvalidChars");
+  }
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(projectName)) {
+    return desktopT("desktop.error.projectNameReserved");
+  }
+  return undefined;
+}
+
+function promptSolutionTemplate(): BlueprintSolutionTemplateId | undefined {
+  const raw = window.prompt(desktopT("desktop.prompt.solutionTemplate"), "hello-world")?.trim().toLowerCase();
+  if (!raw) {
+    return undefined;
+  }
+  if (raw === "empty" || raw === "hello-world") {
+    return raw;
+  }
+  window.alert(desktopT("desktop.error.solutionTemplateInvalid"));
+  return promptSolutionTemplate();
+}
+
+function solutionFileName(solutionName: string): string {
+  const stem = solutionName
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "-")
+    .replace(/\.+$/g, "")
+    .trim();
+  return `${stem || "BlueprintSolution"}.bsln`;
+}
+
 const root = document.getElementById("root");
 if (root) {
   createRoot(root).render(
@@ -820,12 +920,29 @@ if (root) {
 }
 
 function DesktopShell(): JSX.Element {
-  const [solution, setSolution] = React.useState<BlueprintSolutionSummary | undefined>(() => readStoredSolution());
+  const [mode, setMode] = React.useState<"loading" | "hub" | "workspace">("loading");
+  const [solution, setSolution] = React.useState<BlueprintSolutionSummary | undefined>();
   const [selectedGraphPath, setSelectedGraphPath] = React.useState<string | undefined>(activeGraphPath);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | undefined>();
-  const [expandedTemplateProjectPath, setExpandedTemplateProjectPath] = React.useState<string | undefined>();
-  const [expandedSourceProjectPath, setExpandedSourceProjectPath] = React.useState<string | undefined>();
+  const [launchFolder, setLaunchFolder] = React.useState<{ path: string; error?: string } | undefined>();
+  const [recentSolutions, setRecentSolutions] = React.useState<BlueprintSolutionSummary[]>(() => readRecentSolutions());
+  const [expandedProjectPaths, setExpandedProjectPaths] = React.useState<Set<string>>(new Set());
+  const [leftDockOpen, setLeftDockOpen] = React.useState(true);
+  const [leftDockTabs, setLeftDockTabs] = React.useState<DesktopDockTab[]>(defaultLeftDockTabs);
+  const [leftDockTab, setLeftDockTab] = React.useState<DesktopDockTab>("tree");
+  const [rightDockOpen, setRightDockOpen] = React.useState(false);
+  const [rightDockTabs, setRightDockTabs] = React.useState<DesktopDockTab[]>(defaultRightDockTabs);
+  const [rightDockTab, setRightDockTab] = React.useState<DesktopDockTab>("inspector");
+  const [leftDockWidth, setLeftDockWidth] = React.useState(292);
+  const [rightDockWidth, setRightDockWidth] = React.useState(300);
+  const [dockResize, setDockResize] = React.useState<{ side: "left" | "right"; startX: number; startWidth: number } | undefined>();
+  const [dockDropSide, setDockDropSide] = React.useState<DesktopDockSide | undefined>();
+  const [desktopRunStatus, setDesktopRunStatus] = React.useState<DesktopRunStatus>({
+    phase: "idle",
+    message: desktopT("desktop.run.idle")
+  });
+  const [graphTabOrder, setGraphTabOrder] = React.useState<string[]>([]);
 
   React.useEffect(() => {
     updateSelectedGraphPathFromEditor = setSelectedGraphPath;
@@ -843,24 +960,120 @@ function DesktopShell(): JSX.Element {
     void publishTemplatesForSolution(solution);
   }, [solution]);
 
+  React.useEffect(() => {
+    setExpandedProjectPaths(new Set(solution?.projects.map((project) => project.path) ?? []));
+  }, [solution]);
+
+  React.useEffect(() => {
+    const graphPaths = solution?.projects.flatMap((project) => project.graphs.map((graph) => graph.path)) ?? [];
+    setGraphTabOrder((current) => [
+      ...current.filter((path) => graphPaths.includes(path)),
+      ...graphPaths.filter((path) => !current.includes(path))
+    ]);
+  }, [solution]);
+
+  React.useEffect(() => {
+    if (!leftDockTabs.includes(leftDockTab)) {
+      const nextTab = leftDockTabs[0];
+      if (nextTab) {
+        setLeftDockTab(nextTab);
+      } else {
+        setLeftDockOpen(false);
+      }
+    }
+  }, [leftDockTab, leftDockTabs]);
+
+  React.useEffect(() => {
+    if (!rightDockTabs.includes(rightDockTab)) {
+      const nextTab = rightDockTabs[0];
+      if (nextTab) {
+        setRightDockTab(nextTab);
+      } else {
+        setRightDockOpen(false);
+      }
+    }
+  }, [rightDockTab, rightDockTabs]);
+
+  React.useEffect(() => {
+    if (!hasTauriWindowRuntime()) {
+      return;
+    }
+    const appWindow = getCurrentWindow();
+    void (async () => {
+      if (mode === "workspace") {
+        await appWindow.setMinSize(new LogicalSize(960, 640));
+        await appWindow.setFullscreen(false);
+        await appWindow.setSize(workspaceWindowSize);
+        await appWindow.maximize();
+        return;
+      }
+      await appWindow.setFullscreen(false);
+      await appWindow.unmaximize();
+      await appWindow.setMinSize(hubWindowMinSize);
+      await appWindow.setSize(hubWindowSize);
+      await appWindow.center();
+    })().catch((error) => console.error(error));
+  }, [mode]);
+
+  const openSolutionSummary = React.useCallback(async (nextSolution: BlueprintSolutionSummary): Promise<void> => {
+    setSolution(nextSolution);
+    writeJsonStorage(desktopSolutionKey, nextSolution);
+    setRecentSolutions(rememberRecentSolution(nextSolution));
+    const firstGraph = nextSolution.projects.flatMap((project) => project.graphs)[0];
+    if (firstGraph) {
+      await loadGraphPath(firstGraph.path);
+      setSelectedGraphPath(firstGraph.path);
+    } else {
+      setSelectedGraphPath(undefined);
+    }
+    setLaunchFolder(undefined);
+    setMode("workspace");
+  }, []);
+
   const loadSolution = React.useCallback(async (path: string) => {
     setBusy(true);
     setError(undefined);
     try {
-      const nextSolution = await tauriBlueprintHost.readBlueprintSolution(path);
-      setSolution(nextSolution);
-      writeJsonStorage(desktopSolutionKey, nextSolution);
-      const firstGraph = nextSolution.projects.flatMap((project) => project.graphs)[0];
-      if (firstGraph) {
-        await loadGraphPath(firstGraph.path);
-        setSelectedGraphPath(firstGraph.path);
-      }
+      await openSolutionSummary(await tauriBlueprintHost.readBlueprintSolution(path));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [openSolutionSummary]);
+
+  const applyLaunchContext = React.useCallback(async (context: BlueprintLaunchContext): Promise<void> => {
+    if (context.kind === "solution") {
+      await openSolutionSummary(context.solution);
+      return;
+    }
+    if (context.kind === "folder") {
+      setLaunchFolder({ path: context.folderPath, error: context.error });
+      setMode("hub");
+      return;
+    }
+    setLaunchFolder(undefined);
+    setMode("hub");
+  }, [openSolutionSummary]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void tauriBlueprintHost.getLaunchContext()
+      .then(async (context) => {
+        if (!cancelled) {
+          await applyLaunchContext(context);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSolution(readStoredSolution());
+          setMode("workspace");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [applyLaunchContext]);
 
   const chooseSolution = React.useCallback(async () => {
     setBusy(true);
@@ -880,39 +1093,35 @@ function DesktopShell(): JSX.Element {
     }
   }, [loadSolution]);
 
-  const createSolution = React.useCallback(async () => {
+  const createSolution = React.useCallback(async (preferredTemplateId?: BlueprintSolutionTemplateId) => {
     setBusy(true);
     setError(undefined);
     try {
-      const solutionName = window.prompt(desktopT("desktop.prompt.solutionName"), desktopT("desktop.default.solutionName"))?.trim();
-      if (!solutionName) {
+      const selectedFolder = await open({
+        directory: true,
+        multiple: false,
+        title: desktopT("desktop.selectEmptySolutionFolder")
+      });
+      if (typeof selectedFolder !== "string") {
         return;
       }
-      const projectName = window.prompt(desktopT("desktop.prompt.firstProjectName"), desktopT("desktop.default.projectName"))?.trim();
+      const solutionName = defaultSolutionNameFromFolder(selectedFolder);
+      const projectName = promptValidProjectName(solutionName);
       if (!projectName) {
         return;
       }
-      const selected = await save({
-        defaultPath: `${solutionName}.bsln`,
-        filters: [{ name: desktopT("desktop.fileFilter.solution"), extensions: ["bsln"] }]
-      });
-      if (typeof selected !== "string") {
+      const templateId = preferredTemplateId ?? promptSolutionTemplate();
+      if (!templateId) {
         return;
       }
-      const nextSolution = await tauriBlueprintHost.createSolution(selected, solutionName, projectName);
-      setSolution(nextSolution);
-      writeJsonStorage(desktopSolutionKey, nextSolution);
-      const firstGraph = nextSolution.projects.flatMap((project) => project.graphs)[0];
-      if (firstGraph) {
-        await loadGraphPath(firstGraph.path);
-        setSelectedGraphPath(firstGraph.path);
-      }
+      const solutionPath = `${selectedFolder.replace(/[\\/]$/, "")}/${solutionFileName(solutionName)}`;
+      await openSolutionSummary(await tauriBlueprintHost.createSolution(solutionPath, solutionName, projectName, templateId));
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : String(createError));
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [openSolutionSummary]);
 
   const openGraph = React.useCallback(async (graph: BlueprintGraphSummary) => {
     setBusy(true);
@@ -981,410 +1190,1126 @@ function DesktopShell(): JSX.Element {
     [solution]
   );
 
-  const createGraphFromTemplate = React.useCallback(
-    async (projectPath: string, template: WorkflowTemplateDefinition) => {
-      if (!solution) {
-        return;
+  const compileActiveGraph = React.useCallback(async () => {
+    setDesktopRunStatus({ phase: "compiling", message: desktopT("desktop.run.compiling") });
+    const result = await tauriBlueprintHost.compileGraph(activeGraph, activeGraphPath).catch((error: unknown) => ({
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+      issues: undefined,
+      outputFiles: undefined
+    }));
+    if (result.issues) {
+      sendToEditor({ type: "validationResult", issues: result.issues });
+    }
+    setDesktopRunStatus({
+      phase: result.ok ? "ok" : "error",
+      message: result.message,
+      stdout: result.outputFiles?.join("\n")
+    });
+  }, []);
+
+  const runActiveGraph = React.useCallback(async () => {
+    setDesktopRunStatus({ phase: "running", message: desktopT("desktop.run.running") });
+    const result = await tauriBlueprintHost.runGraph(activeGraph, activeGraphPath).catch((error: unknown) => ({
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+      stdout: "",
+      stderr: "",
+      durationMs: 0,
+      traces: [],
+      issues: undefined
+    }));
+    if (result.issues) {
+      sendToEditor({ type: "validationResult", issues: result.issues });
+    }
+    sendToEditor({ type: "runtimeResult", ...result });
+    setDesktopRunStatus({
+      phase: result.ok ? "ok" : "error",
+      message: result.message,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      durationMs: result.durationMs
+    });
+  }, []);
+
+  const toggleProjectExpanded = React.useCallback((projectPath: string) => {
+    setExpandedProjectPaths((current) => {
+      const next = new Set(current);
+      if (next.has(projectPath)) {
+        next.delete(projectPath);
+      } else {
+        next.add(projectPath);
       }
-      setBusy(true);
-      setError(undefined);
-      try {
-        const graphName = window.prompt(desktopT("desktop.prompt.graphName"), workflowTemplateDefaultGraphName(template))?.trim();
-        if (!graphName) {
-          return;
-        }
-        const graph = await tauriBlueprintHost.createGraph(projectPath, graphName);
-        await tauriBlueprintHost.writeBlueprintFile(graph.path, createWorkflowGraph(template.id, graphName));
-        const nextSolution = await tauriBlueprintHost.readBlueprintSolution(solution.path);
-        setSolution(nextSolution);
-        writeJsonStorage(desktopSolutionKey, nextSolution);
-        await loadGraphPath(graph.path);
-        setSelectedGraphPath(graph.path);
-        setExpandedTemplateProjectPath(undefined);
-      } catch (createError) {
-        setError(createError instanceof Error ? createError.message : String(createError));
-      } finally {
-        setBusy(false);
+      return next;
+    });
+  }, []);
+  const moveDockTabToSide = React.useCallback((tab: DesktopDockTab, side: DesktopDockSide) => {
+    setLeftDockTabs((current) => side === "left"
+      ? [...current.filter((candidate) => candidate !== tab), tab]
+      : current.filter((candidate) => candidate !== tab));
+    setRightDockTabs((current) => side === "right"
+      ? [...current.filter((candidate) => candidate !== tab), tab]
+      : current.filter((candidate) => candidate !== tab));
+    if (side === "left") {
+      setLeftDockTab(tab);
+      setLeftDockOpen(true);
+      return;
+    }
+    setRightDockTab(tab);
+    setRightDockOpen(true);
+  }, []);
+
+  const activateLeftDock = React.useCallback((tab: DesktopDockTab) => {
+    if (!leftDockTabs.includes(tab)) {
+      moveDockTabToSide(tab, "left");
+    }
+    setLeftDockTab(tab);
+    setLeftDockOpen((current) => leftDockTab === tab ? !current : true);
+  }, [leftDockTab, leftDockTabs, moveDockTabToSide]);
+  const activateRightDock = React.useCallback((tab: DesktopDockTab) => {
+    if (!rightDockTabs.includes(tab)) {
+      moveDockTabToSide(tab, "right");
+    }
+    setRightDockTab(tab);
+    setRightDockOpen((current) => rightDockTab === tab ? !current : true);
+  }, [rightDockTab, rightDockTabs, moveDockTabToSide]);
+  const moveGraphTab = React.useCallback((fromPath: string, toPath: string) => {
+    if (fromPath === toPath) {
+      return;
+    }
+    setGraphTabOrder((current) => {
+      const next = current.filter((path) => path !== fromPath);
+      const targetIndex = Math.max(0, next.indexOf(toPath));
+      next.splice(targetIndex, 0, fromPath);
+      return next;
+    });
+  }, []);
+  const startDockResize = React.useCallback((side: "left" | "right", event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDockResize({ side, startX: event.clientX, startWidth: side === "left" ? leftDockWidth : rightDockWidth });
+  }, [leftDockWidth, rightDockWidth]);
+  const resizeDock = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!dockResize) {
+      return;
+    }
+    const delta = event.clientX - dockResize.startX;
+    if (dockResize.side === "left") {
+      setLeftDockWidth(Math.round(Math.min(460, Math.max(220, dockResize.startWidth + delta))));
+    } else {
+      setRightDockWidth(Math.round(Math.min(480, Math.max(240, dockResize.startWidth - delta))));
+    }
+  }, [dockResize]);
+  const stopDockResize = React.useCallback(() => {
+    if (dockResize?.side === "left" && leftDockWidth <= 232) {
+      setLeftDockOpen(false);
+      setLeftDockWidth(292);
+    }
+    if (dockResize?.side === "right" && rightDockWidth <= 252) {
+      setRightDockOpen(false);
+      setRightDockWidth(300);
+    }
+    setDockResize(undefined);
+  }, [dockResize, leftDockWidth, rightDockWidth]);
+
+  const startDockTabDrag = React.useCallback((side: DesktopDockSide, tab: DesktopDockTab, event: React.DragEvent) => {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(desktopDockTabMime, JSON.stringify({ side, tab }));
+  }, []);
+
+  const handleDockDragOver = React.useCallback((side: DesktopDockSide, event: React.DragEvent) => {
+    if (!Array.from(event.dataTransfer.types).includes(desktopDockTabMime)) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDockDropSide(side);
+  }, []);
+
+  const clearDockDropSide = React.useCallback((event?: React.DragEvent) => {
+    if (event?.currentTarget instanceof HTMLElement && event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) {
+      return;
+    }
+    setDockDropSide(undefined);
+  }, []);
+
+  const handleDockDrop = React.useCallback((side: DesktopDockSide, event: React.DragEvent) => {
+    const rawPayload = event.dataTransfer.getData(desktopDockTabMime);
+    if (!rawPayload) {
+      return;
+    }
+    event.preventDefault();
+    setDockDropSide(undefined);
+    try {
+      const payload = JSON.parse(rawPayload) as { tab?: DesktopDockTab };
+      if (payload.tab && isDesktopDockTab(payload.tab)) {
+        moveDockTabToSide(payload.tab, side);
       }
-    },
-    [solution]
+    } catch (error) {
+      console.error(error);
+    }
+  }, [moveDockTabToSide]);
+
+  const unorderedGraphTabs = solution?.projects.flatMap((project) =>
+    project.graphs.map((graph) => ({
+      projectName: project.name,
+      projectPath: project.path,
+      graph
+    }))
+  ) ?? [];
+  const graphTabIndex = new Map(graphTabOrder.map((path, index) => [path, index]));
+  const graphTabs = [...unorderedGraphTabs].sort((a, b) => (graphTabIndex.get(a.graph.path) ?? Number.MAX_SAFE_INTEGER) - (graphTabIndex.get(b.graph.path) ?? Number.MAX_SAFE_INTEGER));
+  const shellClassName = [
+    "desktop-shell",
+    leftDockOpen ? "" : "left-dock-collapsed",
+    rightDockOpen ? "" : "right-dock-collapsed"
+  ].filter(Boolean).join(" ");
+  const desktopShellStyle = {
+    "--desktop-left-dock-width": `${leftDockWidth}px`,
+    "--desktop-right-dock-width": `${rightDockWidth}px`
+  } as React.CSSProperties;
+  const selectedGraphSummary = graphTabs.find((entry) => entry.graph.path === selectedGraphPath)?.graph;
+
+  const titleBar = (
+    <DesktopTitleBar
+      busy={busy}
+      mode={mode === "workspace" ? "workspace" : "hub"}
+      solution={solution}
+      selectedGraphPath={selectedGraphPath}
+      onCreateSolution={createSolution}
+      onOpenSolution={chooseSolution}
+      onCreateProject={solution ? createProject : undefined}
+      onRefreshSolution={solution ? () => void loadSolution(solution.path) : undefined}
+      leftDockOpen={leftDockOpen}
+      rightDockOpen={rightDockOpen}
+      onActivateLeftDock={activateLeftDock}
+      onActivateRightDock={activateRightDock}
+      onToggleLeftDock={() => setLeftDockOpen((current) => !current)}
+      onToggleRightDock={() => setRightDockOpen((current) => !current)}
+      onCompileGraph={compileActiveGraph}
+      onRunGraph={runActiveGraph}
+    />
   );
 
-  const addTemplateSource = React.useCallback(
-    async (projectPath: string) => {
-      if (!solution) {
-        return;
-      }
-      setBusy(true);
-      setError(undefined);
-      try {
-        const source = window.prompt(desktopT("desktop.prompt.templateSourceGlob"), "src/**/*.ts")?.trim();
-        if (!source) {
-          return;
-        }
-        const projectFile = await tauriBlueprintHost.readBlueprintFile(projectPath);
-        if (!isBlueprintProject(projectFile)) {
-          throw new Error(desktopT("desktop.error.selectedFileNotProject", { projectPath }));
-        }
-        const nextProject = addProjectTemplateSource(projectFile, source);
-        if (nextProject !== projectFile) {
-          await tauriBlueprintHost.writeBlueprintFile(projectPath, nextProject);
-        }
-        const nextSolution = await tauriBlueprintHost.readBlueprintSolution(solution.path);
-        setSolution(nextSolution);
-        writeJsonStorage(desktopSolutionKey, nextSolution);
-      } catch (sourceError) {
-        setError(sourceError instanceof Error ? sourceError.message : String(sourceError));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [solution]
-  );
-
-  const importTemplatePackage = React.useCallback(
-    async (projectPath: string) => {
-      if (!solution) {
-        return;
-      }
-      setBusy(true);
-      setError(undefined);
-      try {
-        const manifestText = window.prompt(desktopT("desktop.prompt.templatePackageManifestJson"), JSON.stringify({
-          id: "gameplay.templates",
-          name: desktopT("desktop.default.templatePackageName"),
-          version: "1.0.0",
-          templateSources: ["src/**/*.ts"],
-          builtinGroups: []
-        }, null, 2))?.trim();
-        if (!manifestText) {
-          return;
-        }
-        const manifest = JSON.parse(manifestText) as Parameters<typeof importProjectTemplatePackage>[1];
-        const projectFile = await tauriBlueprintHost.readBlueprintFile(projectPath);
-        if (!isBlueprintProject(projectFile)) {
-          throw new Error(desktopT("desktop.error.selectedFileNotProject", { projectPath }));
-        }
-        const nextProject = importProjectTemplatePackage(projectFile, manifest);
-        await tauriBlueprintHost.writeBlueprintFile(projectPath, nextProject);
-        const nextSolution = await tauriBlueprintHost.readBlueprintSolution(solution.path);
-        setSolution(nextSolution);
-        writeJsonStorage(desktopSolutionKey, nextSolution);
-      } catch (sourceError) {
-        setError(sourceError instanceof Error ? sourceError.message : String(sourceError));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [solution]
-  );
-
-  const removeTemplateSource = React.useCallback(
-    async (projectPath: string, source: string) => {
-      if (!solution || !window.confirm(desktopT("desktop.confirm.removeTemplateSource", { source }))) {
-        return;
-      }
-      setBusy(true);
-      setError(undefined);
-      try {
-        const projectFile = await tauriBlueprintHost.readBlueprintFile(projectPath);
-        if (!isBlueprintProject(projectFile)) {
-          throw new Error(desktopT("desktop.error.selectedFileNotProject", { projectPath }));
-        }
-        await tauriBlueprintHost.writeBlueprintFile(projectPath, removeProjectTemplateSource(projectFile, source));
-        const nextSolution = await tauriBlueprintHost.readBlueprintSolution(solution.path);
-        setSolution(nextSolution);
-        writeJsonStorage(desktopSolutionKey, nextSolution);
-      } catch (sourceError) {
-        setError(sourceError instanceof Error ? sourceError.message : String(sourceError));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [solution]
-  );
-
-  const renameProject = React.useCallback(
-    async (projectPath: string, currentName: string) => {
-      if (!solution) {
-        return;
-      }
-      setBusy(true);
-      setError(undefined);
-      try {
-        const projectName = window.prompt(desktopT("desktop.prompt.projectName"), currentName)?.trim();
-        if (!projectName || projectName === currentName) {
-          return;
-        }
-        const nextSolution = await tauriBlueprintHost.renameProject(solution.path, projectPath, projectName);
-        setSolution(nextSolution);
-        writeJsonStorage(desktopSolutionKey, nextSolution);
-      } catch (renameError) {
-        setError(renameError instanceof Error ? renameError.message : String(renameError));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [solution]
-  );
-
-  const deleteProject = React.useCallback(
-    async (projectPath: string, projectName: string) => {
-      if (!solution || !window.confirm(desktopT("desktop.confirm.deleteProject", { project: projectName }))) {
-        return;
-      }
-      setBusy(true);
-      setError(undefined);
-      try {
-        const nextSolution = await tauriBlueprintHost.deleteProject(solution.path, projectPath);
-        setSolution(nextSolution);
-        writeJsonStorage(desktopSolutionKey, nextSolution);
-        const nextGraph = nextSolution.projects.flatMap((project) => project.graphs)[0];
-        if (nextGraph) {
-          await loadGraphPath(nextGraph.path);
-          setSelectedGraphPath(nextGraph.path);
-        } else {
-          setSelectedGraphPath(undefined);
-        }
-      } catch (deleteError) {
-        setError(deleteError instanceof Error ? deleteError.message : String(deleteError));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [solution]
-  );
-
-  const renameGraph = React.useCallback(
-    async (projectPath: string, graph: BlueprintGraphSummary) => {
-      if (!solution) {
-        return;
-      }
-      setBusy(true);
-      setError(undefined);
-      try {
-        const graphName = window.prompt(desktopT("desktop.prompt.graphName"), graph.name)?.trim();
-        if (!graphName || graphName === graph.name) {
-          return;
-        }
-        const renamed = await tauriBlueprintHost.renameGraph(projectPath, graph.path, graphName);
-        const nextSolution = await tauriBlueprintHost.readBlueprintSolution(solution.path);
-        setSolution(nextSolution);
-        writeJsonStorage(desktopSolutionKey, nextSolution);
-        if (graph.path === selectedGraphPath) {
-          await loadGraphPath(renamed.path);
-          setSelectedGraphPath(renamed.path);
-        }
-      } catch (renameError) {
-        setError(renameError instanceof Error ? renameError.message : String(renameError));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [selectedGraphPath, solution]
-  );
-
-  const deleteGraph = React.useCallback(
-    async (projectPath: string, graph: BlueprintGraphSummary) => {
-      if (!solution || !window.confirm(desktopT("desktop.confirm.deleteGraph", { graph: graph.name }))) {
-        return;
-      }
-      setBusy(true);
-      setError(undefined);
-      try {
-        await tauriBlueprintHost.deleteGraph(projectPath, graph.path);
-        const nextSolution = await tauriBlueprintHost.readBlueprintSolution(solution.path);
-        setSolution(nextSolution);
-        writeJsonStorage(desktopSolutionKey, nextSolution);
-        if (graph.path === selectedGraphPath) {
-          const nextGraph = nextSolution.projects.flatMap((project) => project.graphs)[0];
-          if (nextGraph) {
-            await loadGraphPath(nextGraph.path);
-            setSelectedGraphPath(nextGraph.path);
-          } else {
-            setSelectedGraphPath(undefined);
-          }
-        }
-      } catch (deleteError) {
-        setError(deleteError instanceof Error ? deleteError.message : String(deleteError));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [selectedGraphPath, solution]
-  );
+  if (mode === "loading") {
+    return (
+      <div className="desktop-frame">
+        {titleBar}
+        <ProjectHub
+          busy
+          loading
+          error={error}
+          launchFolder={launchFolder}
+          recentSolutions={recentSolutions}
+          onCreateSolution={createSolution}
+          onCreateSolutionTemplate={(templateId) => createSolution(templateId)}
+          onOpenSolution={chooseSolution}
+          onOpenRecentSolution={(path) => void loadSolution(path)}
+        />
+      </div>
+    );
+  }
+  if (mode === "hub") {
+    return (
+      <div className="desktop-frame">
+        {titleBar}
+        <ProjectHub
+          busy={busy}
+          error={error}
+          launchFolder={launchFolder}
+          recentSolutions={recentSolutions}
+          onCreateSolution={createSolution}
+          onCreateSolutionTemplate={(templateId) => createSolution(templateId)}
+          onOpenSolution={chooseSolution}
+          onOpenRecentSolution={(path) => void loadSolution(path)}
+        />
+      </div>
+    );
+  }
 
   return (
-    <div className="desktop-shell">
-      <aside className="desktop-nav" aria-label={desktopT("desktop.navigation")}>
-        <div className="desktop-nav-title">
-          <WorkflowMark />
-          <div>
-            <strong>Blueprint IDE</strong>
-            <span>{desktopT("desktop.subtitle")}</span>
-          </div>
-        </div>
-        <div className="desktop-nav-actions">
-          <button type="button" onClick={createSolution} disabled={busy} title={desktopT("desktop.newSolutionTitle")}>
-            <Plus size={15} />
-            <span>{desktopT("desktop.newSolution")}</span>
-          </button>
-          <button type="button" onClick={chooseSolution} disabled={busy} title={desktopT("desktop.openSolutionTitle")}>
-            <FolderOpen size={15} />
-            <span>{desktopT("desktop.openSolution")}</span>
-          </button>
+    <div className="desktop-frame">
+      {titleBar}
+      <div className={shellClassName} style={desktopShellStyle}>
+      <aside className="desktop-activity-bar left" aria-label={desktopT("desktop.activity.left")}>
+        <button type="button" className={leftDockOpen && leftDockTab === "tree" ? "active" : undefined} onClick={() => activateLeftDock("tree")} title={desktopT("desktop.activity.project")}>
+          <PanelLeft size={17} />
+        </button>
+        <button type="button" className={leftDockOpen && leftDockTab === "run" ? "active" : undefined} onClick={() => activateLeftDock("run")} title={desktopT("desktop.activity.run")}>
+          <Play size={17} />
+        </button>
+        <button type="button" className={leftDockOpen && leftDockTab === "source" ? "active" : undefined} onClick={() => activateLeftDock("source")} title={desktopT("desktop.activity.source")}>
+          <GitBranch size={17} />
+        </button>
+      </aside>
+      <aside
+        className={dockDropSide === "left" ? "desktop-nav desktop-dock-panel dock-drop-target" : "desktop-nav desktop-dock-panel"}
+        aria-label={desktopT("desktop.navigation")}
+        onDragOver={(event) => handleDockDragOver("left", event)}
+        onDragLeave={clearDockDropSide}
+        onDrop={(event) => handleDockDrop("left", event)}
+      >
+        <DesktopDockTabStrip
+          side="left"
+          tabs={leftDockTabs}
+          activeTab={leftDockTab}
+          onActivate={activateLeftDock}
+          onDragStart={startDockTabDrag}
+        />
+        <DesktopDockPanelContent
+          tab={leftDockTab}
+          busy={busy}
+          error={error}
+          solution={solution}
+          selectedGraphPath={selectedGraphPath}
+          activeGraph={activeGraph}
+          templates={activeTemplates}
+          runStatus={desktopRunStatus}
+          expandedProjectPaths={expandedProjectPaths}
+          onToggleProject={toggleProjectExpanded}
+          onOpenGraph={openGraph}
+          onCreateGraph={createGraph}
+          onCompileGraph={compileActiveGraph}
+          onRunGraph={runActiveGraph}
+        />
+      </aside>
+      <div
+        className="desktop-dock-splitter left"
+        role="separator"
+        aria-orientation="vertical"
+        onPointerDown={(event) => startDockResize("left", event)}
+        onPointerMove={resizeDock}
+        onPointerUp={stopDockResize}
+        onPointerCancel={stopDockResize}
+        onDoubleClick={() => setLeftDockOpen(false)}
+      />
+      <main className="desktop-editor">
+        <div className="desktop-graph-tabs" role="tablist" aria-label={desktopT("desktop.graphTabs")}>
+          {graphTabs.map(({ projectName, graph }) => (
+            <button
+              key={graph.path}
+              type="button"
+              role="tab"
+              aria-selected={graph.path === selectedGraphPath}
+              className={graph.path === selectedGraphPath ? "active" : undefined}
+              title={graph.path}
+              draggable
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("application/x-blueprint-graph-tab", graph.path);
+              }}
+              onDragOver={(event) => {
+                if (Array.from(event.dataTransfer.types).includes("application/x-blueprint-graph-tab")) {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                }
+              }}
+              onDrop={(event) => {
+                const fromPath = event.dataTransfer.getData("application/x-blueprint-graph-tab");
+                if (fromPath) {
+                  event.preventDefault();
+                  moveGraphTab(fromPath, graph.path);
+                }
+              }}
+              onClick={() => void openGraph(graph)}
+            >
+              <FileJson size={14} />
+              <span>{graph.name}</span>
+              <small>{projectName}</small>
+            </button>
+          ))}
           {solution ? (
-            <button type="button" onClick={() => void loadSolution(solution.path)} disabled={busy} title={desktopT("desktop.refreshSolution")}>
-              <RefreshCw size={15} />
+            <button type="button" className="desktop-graph-tab-add" onClick={() => {
+              const projectPath = graphTabs.find((entry) => entry.graph.path === selectedGraphPath)?.projectPath ?? solution.projects[0]?.path;
+              if (projectPath) {
+                void createGraph(projectPath);
+              }
+            }} disabled={busy} title={desktopT("desktop.newGraphTitle")}>
+              <Plus size={14} />
             </button>
           ) : null}
         </div>
-        <div className="desktop-solution-meta">
-          <span>{solution?.name ?? desktopT("desktop.noSolutionSelected")}</span>
-          {solution ? <small title={solution.path}>{solution.path}</small> : null}
+        <div className="desktop-editor-content">
+          <App externalDockPanels />
         </div>
-        {solution ? (
-          <button type="button" className="desktop-wide-action" onClick={createProject} disabled={busy} title={desktopT("desktop.newProjectTitle")}>
-            <Plus size={14} />
-            <span>{desktopT("desktop.newProject")}</span>
+      </main>
+      <div
+        className="desktop-dock-splitter right"
+        role="separator"
+        aria-orientation="vertical"
+        onPointerDown={(event) => startDockResize("right", event)}
+        onPointerMove={resizeDock}
+        onPointerUp={stopDockResize}
+        onPointerCancel={stopDockResize}
+        onDoubleClick={() => setRightDockOpen(false)}
+      />
+      <aside
+        className={dockDropSide === "right" ? "desktop-right-dock desktop-dock-panel dock-drop-target" : "desktop-right-dock desktop-dock-panel"}
+        aria-label={desktopT("desktop.activity.right")}
+        onDragOver={(event) => handleDockDragOver("right", event)}
+        onDragLeave={clearDockDropSide}
+        onDrop={(event) => handleDockDrop("right", event)}
+      >
+        <DesktopDockTabStrip
+          side="right"
+          tabs={rightDockTabs}
+          activeTab={rightDockTab}
+          onActivate={activateRightDock}
+          onDragStart={startDockTabDrag}
+        />
+        <DesktopDockPanelContent
+          tab={rightDockTab}
+          busy={busy}
+          error={error}
+          solution={solution}
+          selectedGraphPath={selectedGraphPath}
+          selectedGraph={selectedGraphSummary}
+          activeGraph={activeGraph}
+          templates={activeTemplates}
+          runStatus={desktopRunStatus}
+          expandedProjectPaths={expandedProjectPaths}
+          onToggleProject={toggleProjectExpanded}
+          onOpenGraph={(graph) => void openGraph(graph)}
+          onCreateGraph={createGraph}
+          onCompileGraph={compileActiveGraph}
+          onRunGraph={runActiveGraph}
+          onRefreshSolution={solution ? () => void loadSolution(solution.path) : undefined}
+        />
+      </aside>
+      <aside className="desktop-activity-bar right" aria-label={desktopT("desktop.activity.right")}>
+        <button type="button" className={rightDockOpen && rightDockTab === "commands" ? "active" : undefined} onClick={() => activateRightDock("commands")} title={desktopT("desktop.activity.commands")}>
+          <Command size={17} />
+        </button>
+        <button type="button" className={rightDockOpen && rightDockTab === "debug" ? "active" : undefined} onClick={() => activateRightDock("debug")} title={desktopT("desktop.activity.debug")}>
+          <Bug size={17} />
+        </button>
+        <button type="button" className={rightDockOpen && rightDockTab === "settings" ? "active" : undefined} onClick={() => activateRightDock("settings")} title={desktopT("desktop.activity.settings")}>
+          <Settings size={17} />
+        </button>
+        <button type="button" className={rightDockOpen && rightDockTab === "inspector" ? "active" : undefined} onClick={() => activateRightDock("inspector")} title={desktopT("desktop.activity.inspector")}>
+          <PanelRight size={17} />
+        </button>
+      </aside>
+      </div>
+    </div>
+  );
+}
+
+function isDesktopDockTab(tab: string): tab is DesktopDockTab {
+  return [...defaultLeftDockTabs, ...defaultRightDockTabs].includes(tab as DesktopDockTab);
+}
+
+function isLeftDockTab(tab: DesktopDockTab): tab is DesktopLeftDockTab {
+  return defaultLeftDockTabs.includes(tab);
+}
+
+function isRightDockTab(tab: DesktopDockTab): tab is DesktopRightDockTab {
+  return defaultRightDockTabs.includes(tab);
+}
+
+function desktopDockTabTitle(tab: DesktopDockTab): string {
+  const titleKey = tab === "tree"
+    ? "desktop.dock.tree"
+    : tab === "run"
+      ? "desktop.dock.run"
+      : tab === "source"
+        ? "desktop.dock.source"
+        : tab === "commands"
+          ? "desktop.dock.commands"
+          : tab === "debug"
+            ? "desktop.dock.debug"
+            : tab === "settings"
+              ? "desktop.dock.settings"
+              : "desktop.dock.inspector";
+  return desktopT(titleKey);
+}
+
+function DesktopDockTabStrip(props: {
+  side: DesktopDockSide;
+  tabs: DesktopDockTab[];
+  activeTab: DesktopDockTab;
+  onActivate(tab: DesktopDockTab): void;
+  onDragStart(side: DesktopDockSide, tab: DesktopDockTab, event: React.DragEvent): void;
+}): JSX.Element {
+  return (
+    <div className="desktop-dock-tab-strip" role="tablist" aria-label={props.side === "left" ? desktopT("desktop.activity.left") : desktopT("desktop.activity.right")}>
+      {props.tabs.map((tab) => (
+        <button
+          key={tab}
+          type="button"
+          role="tab"
+          aria-selected={props.activeTab === tab}
+          className={props.activeTab === tab ? "active" : undefined}
+          draggable
+          onDragStart={(event) => props.onDragStart(props.side, tab, event)}
+          onClick={() => props.onActivate(tab)}
+          title={desktopDockTabTitle(tab)}
+        >
+          {desktopDockTabTitle(tab)}
+        </button>
+      ))}
+      {props.tabs.length ? null : <span>{desktopT("desktop.dock.empty")}</span>}
+    </div>
+  );
+}
+
+type DesktopDockPanelContentProps = {
+  tab: DesktopDockTab;
+  busy: boolean;
+  error?: string;
+  solution?: BlueprintSolutionSummary;
+  selectedGraphPath?: string;
+  selectedGraph?: BlueprintGraphSummary;
+  activeGraph: BlueprintGraph;
+  templates: BlueprintNodeTemplate[];
+  runStatus: DesktopRunStatus;
+  expandedProjectPaths: Set<string>;
+  onToggleProject(projectPath: string): void;
+  onOpenGraph(graph: BlueprintGraphSummary): void | Promise<void>;
+  onCreateGraph(projectPath: string): Promise<void>;
+  onCompileGraph(): Promise<void>;
+  onRunGraph(): Promise<void>;
+  onRefreshSolution?: () => void;
+};
+
+function DesktopDockPanelContent(props: DesktopDockPanelContentProps): JSX.Element {
+  if (isLeftDockTab(props.tab)) {
+    return (
+      <DesktopLeftDockPanel
+        tab={props.tab}
+        busy={props.busy}
+        error={props.error}
+        solution={props.solution}
+        selectedGraphPath={props.selectedGraphPath}
+        activeGraph={props.activeGraph}
+        templates={props.templates}
+        runStatus={props.runStatus}
+        expandedProjectPaths={props.expandedProjectPaths}
+        onToggleProject={props.onToggleProject}
+        onOpenGraph={props.onOpenGraph}
+        onCreateGraph={props.onCreateGraph}
+        onCompileGraph={props.onCompileGraph}
+        onRunGraph={props.onRunGraph}
+      />
+    );
+  }
+  if (isRightDockTab(props.tab)) {
+    return (
+      <DesktopRightDockPanel
+        tab={props.tab}
+        solution={props.solution}
+        selectedGraph={props.selectedGraph}
+        activeGraph={props.activeGraph}
+        templates={props.templates}
+        runStatus={props.runStatus}
+        onCompileGraph={props.onCompileGraph}
+        onRunGraph={props.onRunGraph}
+        onRefreshSolution={props.onRefreshSolution}
+      />
+    );
+  }
+  throw new Error(`Unsupported dock tab: ${props.tab}`);
+}
+
+function DesktopLeftDockPanel(props: {
+  tab: DesktopLeftDockTab;
+  busy: boolean;
+  error?: string;
+  solution?: BlueprintSolutionSummary;
+  selectedGraphPath?: string;
+  activeGraph: BlueprintGraph;
+  templates: BlueprintNodeTemplate[];
+  runStatus: DesktopRunStatus;
+  expandedProjectPaths: Set<string>;
+  onToggleProject(projectPath: string): void;
+  onOpenGraph(graph: BlueprintGraphSummary): void;
+  onCreateGraph(projectPath: string): Promise<void>;
+  onCompileGraph(): Promise<void>;
+  onRunGraph(): Promise<void>;
+}): JSX.Element {
+  if (props.tab === "tree") {
+    return (
+      <DesktopBlueprintTreePanel
+        solution={props.solution}
+        selectedGraphPath={props.selectedGraphPath}
+        activeGraph={props.activeGraph}
+        templates={props.templates}
+        expandedProjectPaths={props.expandedProjectPaths}
+        onToggleProject={props.onToggleProject}
+        onOpenGraph={props.onOpenGraph}
+      />
+    );
+  }
+  if (props.tab === "run") {
+    return (
+      <DesktopRunDockPanel
+        activeGraph={props.activeGraph}
+        selectedGraphPath={props.selectedGraphPath}
+        runStatus={props.runStatus}
+        onCompileGraph={props.onCompileGraph}
+        onRunGraph={props.onRunGraph}
+      />
+    );
+  }
+  return <DesktopSourceDockPanel solution={props.solution} />;
+}
+
+function DesktopBlueprintTreePanel(props: {
+  solution?: BlueprintSolutionSummary;
+  selectedGraphPath?: string;
+  activeGraph: BlueprintGraph;
+  templates: BlueprintNodeTemplate[];
+  expandedProjectPaths: Set<string>;
+  onToggleProject(projectPath: string): void;
+  onOpenGraph(graph: BlueprintGraphSummary): void;
+}): JSX.Element {
+  const [outlineFilter, setOutlineFilter] = React.useState("");
+  const [collapsedGraphPaths, setCollapsedGraphPaths] = React.useState<Set<string>>(() => new Set());
+  const normalizedOutlineFilter = outlineFilter.trim().toLowerCase();
+  const templateById = new Map(props.templates.map((template) => [template.id, template]));
+  const toggleGraphCollapsed = React.useCallback((graphPath: string) => {
+    setCollapsedGraphPaths((current) => {
+      const next = new Set(current);
+      if (next.has(graphPath)) {
+        next.delete(graphPath);
+      } else {
+        next.add(graphPath);
+      }
+      return next;
+    });
+  }, []);
+  const filteredTreeNodes = props.activeGraph.nodes.filter((node) => {
+    if (!normalizedOutlineFilter) {
+      return true;
+    }
+    const template = templateById.get(node.templateId);
+    return `${node.id} ${node.templateId} ${template?.name ?? ""}`.toLowerCase().includes(normalizedOutlineFilter);
+  });
+  const visibleTreeNodes = filteredTreeNodes.slice(0, 160);
+  const hiddenTreeNodeCount = Math.max(0, filteredTreeNodes.length - visibleTreeNodes.length);
+  const renderActiveGraphNodes = () => (
+    <div className="desktop-tree-nodes">
+      {hiddenTreeNodeCount ? (
+        <span className="desktop-tree-empty">{desktopT("sidebar.showingNodesLimit", { visible: visibleTreeNodes.length, total: filteredTreeNodes.length })}</span>
+      ) : null}
+      {visibleTreeNodes.length ? visibleTreeNodes.map((node) => {
+        const template = templateById.get(node.templateId);
+        return (
+          <button key={node.id} type="button" className="desktop-tree-node" title={desktopT("sidebar.focusOutlineNode", { nodeId: node.id })} onClick={() => sendToEditor({ type: "focusNode", nodeId: node.id })}>
+            <CircleDot size={10} />
+            <span>{template?.name ?? node.templateId}</span>
+            <small>{node.id}</small>
+          </button>
+        );
+      }) : <span className="desktop-tree-empty">{desktopT("desktop.dock.noActiveGraph")}</span>}
+    </div>
+  );
+  return (
+    <>
+      <div className="desktop-blueprint-tree">
+        <input
+          type="search"
+          className="desktop-tree-filter"
+          value={outlineFilter}
+          onChange={(event) => setOutlineFilter(event.currentTarget.value)}
+          placeholder={desktopT("sidebar.filterOutline")}
+        />
+        {props.solution ? props.solution.projects.map((project) => (
+          <section key={project.path} className="desktop-tree-project">
+            <button type="button" className="desktop-tree-project-row" onClick={() => props.onToggleProject(project.path)}>
+              {props.expandedProjectPaths.has(project.path) ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              <span>{project.name}</span>
+            </button>
+            {props.expandedProjectPaths.has(project.path) ? (
+              <div className="desktop-tree-children">
+                {project.graphs.map((graph) => {
+                  const activeGraph = isActiveTreeGraph(graph, props);
+                  const collapsed = collapsedGraphPaths.has(graph.path);
+                  return (
+                  <section key={graph.path} className={activeGraph ? "desktop-tree-graph active" : "desktop-tree-graph"}>
+                    <button type="button" className="desktop-tree-graph-toggle" onClick={() => toggleGraphCollapsed(graph.path)} title={collapsed ? desktopT("desktop.expandProject", { project: graph.name }) : desktopT("desktop.collapseProject", { project: graph.name })}>
+                      {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                    </button>
+                    <button type="button" onClick={() => props.onOpenGraph(graph)} title={graph.path}>
+                      <FileJson size={14} />
+                      <span>{graph.name}</span>
+                      <small>{graph.kind}</small>
+                    </button>
+                    {activeGraph && !collapsed ? renderActiveGraphNodes() : null}
+                  </section>
+                  );
+                })}
+              </div>
+            ) : null}
+          </section>
+        )) : (
+          <section className="desktop-tree-project">
+            <div className="desktop-tree-graph active">
+              <button type="button" className="desktop-tree-graph-toggle" disabled>
+                <ChevronDown size={12} />
+              </button>
+              <button type="button" disabled>
+                <FileJson size={14} />
+                <span>{props.activeGraph.name}</span>
+                <small>{props.activeGraph.id}</small>
+              </button>
+              {renderActiveGraphNodes()}
+            </div>
+          </section>
+        )}
+      </div>
+    </>
+  );
+}
+
+function isActiveTreeGraph(graph: BlueprintGraphSummary, props: {
+  solution?: BlueprintSolutionSummary;
+  selectedGraphPath?: string;
+  activeGraph: BlueprintGraph;
+}): boolean {
+  if (graph.path === props.selectedGraphPath) {
+    return true;
+  }
+  const graphCount = props.solution?.projects.reduce((count, project) => count + project.graphs.length, 0) ?? 0;
+  return !props.selectedGraphPath && graphCount === 1;
+}
+
+function DesktopRunDockPanel(props: {
+  activeGraph: BlueprintGraph;
+  selectedGraphPath?: string;
+  runStatus: DesktopRunStatus;
+  onCompileGraph(): Promise<void>;
+  onRunGraph(): Promise<void>;
+}): JSX.Element {
+  const busy = props.runStatus.phase === "compiling" || props.runStatus.phase === "running";
+  return (
+    <div className="desktop-run-panel">
+      <div className="desktop-compact-dock-title">
+        <strong>{desktopT("desktop.dock.run")}</strong>
+      </div>
+      <div className="desktop-run-actions">
+        <button type="button" onClick={() => void props.onCompileGraph()} disabled={busy}>
+          <Command size={14} />
+          <span>{desktopT("desktop.run.compile")}</span>
+        </button>
+        <button type="button" onClick={() => void props.onRunGraph()} disabled={busy}>
+          <Play size={14} />
+          <span>{desktopT("desktop.run.run")}</span>
+        </button>
+      </div>
+      <div className={`desktop-run-status ${props.runStatus.phase}`}>
+        <strong>{desktopT(`desktop.run.phase.${props.runStatus.phase}`)}</strong>
+        <span>{props.runStatus.message}</span>
+        {typeof props.runStatus.durationMs === "number" ? <small>{props.runStatus.durationMs} ms</small> : null}
+      </div>
+      {props.runStatus.stdout ? <pre>{props.runStatus.stdout}</pre> : null}
+      {props.runStatus.stderr ? <pre className="error">{props.runStatus.stderr}</pre> : null}
+    </div>
+  );
+}
+
+function DesktopSourceDockPanel(props: {
+  solution?: BlueprintSolutionSummary;
+}): JSX.Element {
+  return (
+    <div className="desktop-source-panel">
+      {props.solution ? props.solution.projects.map((project) => (
+        <section key={project.path}>
+          <div className="desktop-compact-dock-title">
+            <strong>{project.name}</strong>
+          </div>
+            {project.templateSources.length ? project.templateSources.map((source) => (
+              <small key={source}>{source}</small>
+            )) : <small>{desktopT("desktop.source.noSources")}</small>}
+            {project.templatePackages?.length ? project.templatePackages.map((pack) => (
+              <small key={pack.id}>{pack.name} {pack.version}</small>
+            )) : null}
+        </section>
+      )) : <span>{desktopT("desktop.dock.noSolution")}</span>}
+    </div>
+  );
+}
+
+function DesktopRightDockPanel(props: {
+  tab: DesktopRightDockTab;
+  solution?: BlueprintSolutionSummary;
+  selectedGraph?: BlueprintGraphSummary;
+  activeGraph: BlueprintGraph;
+  templates: BlueprintNodeTemplate[];
+  runStatus: DesktopRunStatus;
+  onCompileGraph(): Promise<void>;
+  onRunGraph(): Promise<void>;
+  onRefreshSolution?: () => void;
+}): JSX.Element {
+  const titleKey = props.tab === "commands" ? "desktop.dock.commands" : props.tab === "debug" ? "desktop.dock.debug" : props.tab === "settings" ? "desktop.dock.settings" : "desktop.dock.inspector";
+  return (
+    <div className="desktop-right-dock-body">
+      <div className="desktop-compact-dock-title">
+        <strong>{desktopT(titleKey)}</strong>
+      </div>
+        {props.tab === "commands" ? (
+          <>
+            {props.onRefreshSolution ? <button type="button" onClick={props.onRefreshSolution}><RefreshCw size={14} />{desktopT("desktop.refreshSolution")}</button> : null}
+            <button type="button" onClick={() => void props.onCompileGraph()}><Command size={14} />{desktopT("desktop.run.compile")}</button>
+            <button type="button" onClick={() => void props.onRunGraph()}><Play size={14} />{desktopT("desktop.run.run")}</button>
+            <span>{props.runStatus.message}</span>
+          </>
+        ) : null}
+        {props.tab === "debug" ? (
+          <>
+            <span>{desktopT("desktop.dock.nodes")}: {props.activeGraph.nodes.length}</span>
+            <span>{desktopT("desktop.dock.links")}: {props.activeGraph.links.length}</span>
+          </>
+        ) : null}
+        {props.tab === "settings" ? (
+          <>
+            <span>{desktopT("desktop.dock.currentGraph")}: {props.activeGraph.name}</span>
+            <span>{desktopT("desktop.dock.solution")}: {props.solution ? props.solution.name : desktopT("desktop.dock.noSolution")}</span>
+            <span>{desktopT("desktop.dock.templates")}: {props.templates.length}</span>
+          </>
+        ) : null}
+        {props.tab === "inspector" ? (
+          <>
+            <span>{desktopT("desktop.dock.currentGraph")}: {props.activeGraph.name}</span>
+            <span>{desktopT("desktop.dock.nodes")}: {props.activeGraph.nodes.length}</span>
+            <span>{desktopT("desktop.dock.ports")}: {props.activeGraph.nodes.reduce((count, node) => {
+              const template = props.templates.find((candidate) => candidate.id === node.templateId);
+              return count + (template ? template.inputs.length + template.outputs.length + template.controlInputs.length + template.controlOutputs.length : 0);
+            }, 0)}</span>
+          </>
+        ) : null}
+    </div>
+  );
+}
+
+function DesktopTitleBar(props: {
+  busy: boolean;
+  mode: "hub" | "workspace";
+  solution?: BlueprintSolutionSummary;
+  selectedGraphPath?: string;
+  onCreateSolution(): void;
+  onOpenSolution(): void;
+  onCreateProject?: () => void;
+  onRefreshSolution?: () => void;
+  leftDockOpen: boolean;
+  rightDockOpen: boolean;
+  onActivateLeftDock(tab: DesktopDockTab): void;
+  onActivateRightDock(tab: DesktopDockTab): void;
+  onToggleLeftDock(): void;
+  onToggleRightDock(): void;
+  onCompileGraph(): Promise<void>;
+  onRunGraph(): Promise<void>;
+}): JSX.Element {
+  const [openMenu, setOpenMenu] = React.useState<"file" | "edit" | "view" | "run" | "help" | undefined>();
+  const handleWindowError = React.useCallback((error: unknown) => {
+    console.error(error);
+  }, []);
+  const runMenuAction = React.useCallback((action: () => void) => {
+    setOpenMenu(undefined);
+    action();
+  }, []);
+  const copyText = React.useCallback((value?: string) => {
+    if (!value) {
+      return;
+    }
+    void navigator.clipboard?.writeText(value).catch((error: unknown) => console.error(error));
+  }, []);
+  const runEditorCommand = React.useCallback((commandId: string) => {
+    sendToEditor({ type: "runCommand", commandId });
+  }, []);
+  const minimizeWindow = React.useCallback(() => {
+    void getCurrentWindow().minimize().catch(handleWindowError);
+  }, [handleWindowError]);
+  const maximizeWindow = React.useCallback(() => {
+    void getCurrentWindow().toggleMaximize().catch(handleWindowError);
+  }, [handleWindowError]);
+  const closeWindow = React.useCallback(() => {
+    void getCurrentWindow().close().catch(handleWindowError);
+  }, [handleWindowError]);
+  const startWindowDrag = React.useCallback((event: React.PointerEvent<HTMLElement>) => {
+    if (event.button !== 0 || event.target instanceof Element && event.target.closest("button")) {
+      return;
+    }
+    void getCurrentWindow().startDragging().catch(handleWindowError);
+  }, [handleWindowError]);
+
+  return (
+    <header className="desktop-titlebar" onPointerDown={startWindowDrag}>
+      <div className="desktop-titlebar-brand">
+        <WorkflowMark />
+        <span>Blueprint IDE</span>
+      </div>
+      <nav className="desktop-main-menu" aria-label={desktopT("desktop.mainMenu")}>
+        <div className="desktop-menu-root">
+          <button
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={openMenu === "file"}
+            onClick={() => setOpenMenu((current) => current === "file" ? undefined : "file")}
+            disabled={props.busy}
+          >
+            {desktopT("desktop.menu.file")}
+          </button>
+          {openMenu === "file" ? (
+            <div className="desktop-menu-popover" role="menu">
+              <button type="button" role="menuitem" onClick={() => runMenuAction(props.onCreateSolution)}>
+                <Plus size={14} />
+                <span>{desktopT("desktop.newSolution")}</span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => runMenuAction(props.onOpenSolution)}>
+                <FolderOpen size={14} />
+                <span>{desktopT("desktop.openSolution")}</span>
+              </button>
+              {props.onCreateProject ? (
+                <button type="button" role="menuitem" onClick={() => runMenuAction(props.onCreateProject ?? (() => undefined))}>
+                  <Plus size={14} />
+                  <span>{desktopT("desktop.newProject")}</span>
+                </button>
+              ) : null}
+              {props.onRefreshSolution ? (
+                <button type="button" role="menuitem" onClick={() => runMenuAction(props.onRefreshSolution ?? (() => undefined))}>
+                  <RefreshCw size={14} />
+                  <span>{desktopT("desktop.refreshSolution")}</span>
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        <div className="desktop-menu-root">
+          <button
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={openMenu === "edit"}
+            onClick={() => setOpenMenu((current) => current === "edit" ? undefined : "edit")}
+            disabled={props.busy || props.mode !== "workspace"}
+          >
+            {desktopT("desktop.menu.edit")}
+          </button>
+          {openMenu === "edit" ? (
+            <div className="desktop-menu-popover wide" role="menu">
+              <button type="button" role="menuitem" onClick={() => runMenuAction(() => runEditorCommand("workbench.commandPalette"))}>
+                <Command size={14} />
+                <span>{desktopT("commands.workbench.commandPalette")}</span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => runMenuAction(() => runEditorCommand("graph.undo"))}>
+                <Undo2 size={14} />
+                <span>{desktopT("commands.graph.undo")}</span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => runMenuAction(() => runEditorCommand("graph.redo"))}>
+                <Redo2 size={14} />
+                <span>{desktopT("commands.graph.redo")}</span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => runMenuAction(() => runEditorCommand("graph.copy"))}>
+                <Copy size={14} />
+                <span>{desktopT("commands.graph.copySelection")}</span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => runMenuAction(() => runEditorCommand("graph.paste"))}>
+                <ClipboardPaste size={14} />
+                <span>{desktopT("commands.graph.pasteSelection")}</span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => runMenuAction(() => runEditorCommand("graph.duplicate"))}>
+                <Copy size={14} />
+                <span>{desktopT("commands.graph.duplicateSelection")}</span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => runMenuAction(() => runEditorCommand("graph.delete"))}>
+                <Trash2 size={14} />
+                <span>{desktopT("commands.graph.deleteSelection")}</span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => runMenuAction(() => runEditorCommand("graph.findNode"))}>
+                <Search size={14} />
+                <span>{desktopT("desktop.menu.findNode")}</span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => runMenuAction(() => props.onActivateRightDock("commands"))}>
+                <Command size={14} />
+                <span>{desktopT("desktop.menu.openCommands")}</span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => runMenuAction(() => copyText(props.selectedGraphPath))} disabled={!props.selectedGraphPath}>
+                <FileJson size={14} />
+                <span>{desktopT("desktop.menu.copyGraphPath")}</span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => runMenuAction(() => copyText(props.solution?.path))} disabled={!props.solution}>
+                <FileJson size={14} />
+                <span>{desktopT("desktop.menu.copySolutionPath")}</span>
+              </button>
+            </div>
+          ) : null}
+        </div>
+        <div className="desktop-menu-root">
+          <button
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={openMenu === "view"}
+            onClick={() => setOpenMenu((current) => current === "view" ? undefined : "view")}
+            disabled={props.busy || props.mode !== "workspace"}
+          >
+            {desktopT("desktop.menu.view")}
+          </button>
+          {openMenu === "view" ? (
+            <div className="desktop-menu-popover wide" role="menu">
+              <button type="button" role="menuitem" onClick={() => runMenuAction(props.onToggleLeftDock)}>
+                <PanelLeft size={14} />
+                <span>{props.leftDockOpen ? desktopT("desktop.menu.hideLeftDock") : desktopT("desktop.menu.showLeftDock")}</span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => runMenuAction(props.onToggleRightDock)}>
+                <PanelRight size={14} />
+                <span>{props.rightDockOpen ? desktopT("desktop.menu.hideRightDock") : desktopT("desktop.menu.showRightDock")}</span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => runMenuAction(() => props.onActivateLeftDock("tree"))}>
+                <PanelLeft size={14} />
+                <span>{desktopT("desktop.dock.tree")}</span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => runMenuAction(() => props.onActivateRightDock("commands"))}>
+                <Command size={14} />
+                <span>{desktopT("desktop.dock.commands")}</span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => runMenuAction(() => props.onActivateRightDock("inspector"))}>
+                <PanelRight size={14} />
+                <span>{desktopT("desktop.dock.inspector")}</span>
+              </button>
+            </div>
+          ) : null}
+        </div>
+        <div className="desktop-menu-root">
+          <button
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={openMenu === "run"}
+            onClick={() => setOpenMenu((current) => current === "run" ? undefined : "run")}
+            disabled={props.busy || props.mode !== "workspace"}
+          >
+            {desktopT("desktop.menu.run")}
+          </button>
+          {openMenu === "run" ? (
+            <div className="desktop-menu-popover" role="menu">
+              <button type="button" role="menuitem" onClick={() => runMenuAction(() => void props.onCompileGraph())}>
+                <Command size={14} />
+                <span>{desktopT("desktop.run.compile")}</span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => runMenuAction(() => void props.onRunGraph())}>
+                <Play size={14} />
+                <span>{desktopT("desktop.run.run")}</span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => runMenuAction(() => props.onActivateLeftDock("run"))}>
+                <PanelLeft size={14} />
+                <span>{desktopT("desktop.menu.openRunDock")}</span>
+              </button>
+            </div>
+          ) : null}
+        </div>
+        <div className="desktop-menu-root">
+          <button
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={openMenu === "help"}
+            onClick={() => setOpenMenu((current) => current === "help" ? undefined : "help")}
+          >
+            {desktopT("desktop.menu.help")}
+          </button>
+          {openMenu === "help" ? (
+            <div className="desktop-menu-popover wide" role="menu">
+              <button type="button" role="menuitem" onClick={() => runMenuAction(() => window.alert(desktopT("desktop.menu.aboutMessage")))}>
+                <Command size={14} />
+                <span>{desktopT("desktop.menu.about")}</span>
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </nav>
+      <div className="desktop-titlebar-context">
+        <span>{props.solution?.name ?? (props.mode === "hub" ? desktopT("desktop.hub.title") : desktopT("desktop.noSolutionSelected"))}</span>
+      </div>
+      <div className="desktop-titlebar-actions">
+        {props.onRefreshSolution ? (
+          <button type="button" onClick={props.onRefreshSolution} disabled={props.busy} title={desktopT("desktop.refreshSolution")}>
+            <RefreshCw size={13} />
           </button>
         ) : null}
-        <div className="desktop-project-list">
-          {solution?.projects.map((project) => (
-            <section key={project.path} className="desktop-project">
-              <div className="desktop-project-heading">
-                <h2>{project.name}</h2>
-                <button type="button" onClick={() => void createGraph(project.path)} disabled={busy} title={desktopT("desktop.newGraphInProject", { project: project.name })}>
-                  <Plus size={13} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setExpandedSourceProjectPath(undefined);
-                    setExpandedTemplateProjectPath((current) => current === project.path ? undefined : project.path);
-                  }}
-                  disabled={busy}
-                  title={desktopT("desktop.workflowTemplatesForProject", { project: project.name })}
-                >
-                  <Library size={13} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setExpandedTemplateProjectPath(undefined);
-                    setExpandedSourceProjectPath((current) => current === project.path ? undefined : project.path);
-                  }}
-                  disabled={busy}
-                  title={desktopT("desktop.templateSourcesForProject", { project: project.name })}
-                >
-                  <Code2 size={13} />
-                </button>
-                <button type="button" onClick={() => void renameProject(project.path, project.name)} disabled={busy} title={desktopT("desktop.rename", { name: project.name })}>
-                  <Pencil size={13} />
-                </button>
-                <button type="button" onClick={() => void deleteProject(project.path, project.name)} disabled={busy} title={desktopT("desktop.delete", { name: project.name })}>
-                  <Trash2 size={13} />
-                </button>
-              </div>
-              {expandedTemplateProjectPath === project.path ? (
-                <div className="desktop-template-browser" aria-label={desktopT("desktop.workflowTemplatesForProject", { project: project.name })}>
-                  {workflowTemplates.map((template) => (
-                    <button
-                      key={template.id}
-                      type="button"
-                      onClick={() => void createGraphFromTemplate(project.path, template)}
-                      disabled={busy}
-                      title={workflowTemplateDescription(template)}
-                    >
-                      <span className="desktop-template-name">{workflowTemplateName(template)}</span>
-                      <small className="desktop-template-category">{workflowTemplateCategory(template)}</small>
-                      <span className="desktop-template-description">{workflowTemplateDescription(template)}</span>
-                      <span className="desktop-template-preview">
-                        {workflowTemplatePreviewText(template)}
-                      </span>
-                      <span className="desktop-template-tags">
-                        {template.tags.map((tag) => <small key={tag}>{tag}</small>)}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-              {expandedSourceProjectPath === project.path ? (
-                <div className="desktop-template-sources" aria-label={desktopT("desktop.templateSourcesForProject", { project: project.name })}>
-                  <button type="button" className="desktop-template-source-add" onClick={() => void addTemplateSource(project.path)} disabled={busy} title={desktopT("desktop.addTemplateSourceToProject", { project: project.name })}>
-                    <Plus size={13} />
-                    <span>{desktopT("desktop.addSource")}</span>
-                  </button>
-                  <button type="button" className="desktop-template-source-add" onClick={() => void importTemplatePackage(project.path)} disabled={busy} title={desktopT("desktop.importTemplatePackageToProject", { project: project.name })}>
-                    <PackageIcon size={13} />
-                    <span>{desktopT("desktop.importPackage")}</span>
-                  </button>
-                  {project.templateSources.length ? project.templateSources.map((source) => (
-                    <div key={source} className="desktop-template-source" title={source}>
-                      <span>{source}</span>
-                      <button type="button" onClick={() => void removeTemplateSource(project.path, source)} disabled={busy} title={desktopT("desktop.removeTemplateSource", { source })}>
-                        <Trash2 size={12} />
-                      </button>
-                    </div>
-                  )) : <span className="desktop-template-source-empty">{desktopT("desktop.noTemplateSources")}</span>}
-                </div>
-              ) : null}
-              {project.graphs.map((graph) => (
-                <div
-                  key={graph.path}
-                  className={graph.path === selectedGraphPath ? "desktop-graph active" : "desktop-graph"}
-                  title={graph.path}
-                >
-                  <button type="button" className="desktop-graph-open" onClick={() => void openGraph(graph)}>
-                    <FileJson size={14} />
-                    <span>{graph.name}</span>
-                    <small>{graph.kind}</small>
-                  </button>
-                  <button type="button" className="desktop-graph-action" onClick={() => void renameGraph(project.path, graph)} disabled={busy} title={desktopT("desktop.rename", { name: graph.name })}>
-                    <Pencil size={12} />
-                  </button>
-                  <button type="button" className="desktop-graph-action" onClick={() => void deleteGraph(project.path, graph)} disabled={busy} title={desktopT("desktop.delete", { name: graph.name })}>
-                    <Trash2 size={12} />
-                  </button>
-                </div>
-              ))}
-            </section>
-          ))}
-        </div>
-        {error ? <div className="desktop-error">{error}</div> : null}
-      </aside>
-      <main className="desktop-editor">
-        <App />
-      </main>
-    </div>
+      </div>
+      <div className="desktop-window-controls">
+        <button type="button" onClick={minimizeWindow} title={desktopT("desktop.window.minimize")}>
+          <Minus size={14} />
+        </button>
+        <button type="button" onClick={maximizeWindow} title={desktopT("desktop.window.maximize")}>
+          <Maximize2 size={13} />
+        </button>
+        <button type="button" className="close" onClick={closeWindow} title={desktopT("desktop.window.close")}>
+          <X size={14} />
+        </button>
+      </div>
+    </header>
+  );
+}
+
+function ProjectHub(props: {
+  busy: boolean;
+  loading?: boolean;
+  error?: string;
+  launchFolder?: { path: string; error?: string };
+  recentSolutions: BlueprintSolutionSummary[];
+  onCreateSolution(): void;
+  onCreateSolutionTemplate(templateId: BlueprintSolutionTemplateId): void;
+  onOpenSolution(): void;
+  onOpenRecentSolution(path: string): void;
+}): JSX.Element {
+  return (
+    <main className="project-hub" aria-label={desktopT("desktop.hub.title")}>
+      <section className="project-hub-main">
+        <aside className="project-hub-recents">
+          <header className="project-hub-title">
+            <span>{desktopT("desktop.hub.kicker")}</span>
+            <h1>{desktopT("desktop.hub.title")}</h1>
+          </header>
+          <strong>{desktopT("desktop.hub.recent")}</strong>
+          <div className="project-hub-recent-list">
+            {props.recentSolutions.length ? props.recentSolutions.map((solution) => (
+              <button key={solution.path} type="button" onClick={() => props.onOpenRecentSolution(solution.path)} disabled={props.busy || props.loading}>
+                <FileJson size={15} />
+                <span>{solution.name}</span>
+                <small>{solution.path}</small>
+              </button>
+            )) : <span className="project-hub-empty">{desktopT("desktop.hub.noRecent")}</span>}
+          </div>
+        </aside>
+        <section className="project-hub-start">
+          <p>{desktopT("desktop.hub.description")}</p>
+          <div className="project-hub-actions">
+            <button type="button" onClick={props.onOpenSolution} disabled={props.busy || props.loading}>
+              <FolderOpen size={18} />
+              <span>{desktopT("desktop.openSolution")}</span>
+            </button>
+            <button type="button" onClick={props.onCreateSolution} disabled={props.busy || props.loading}>
+              <Plus size={18} />
+              <span>{desktopT("desktop.newSolution")}</span>
+            </button>
+          </div>
+          <div className="project-hub-templates" aria-label={desktopT("desktop.hub.templates")}>
+            <strong>{desktopT("desktop.hub.templates")}</strong>
+            <button type="button" onClick={() => props.onCreateSolutionTemplate("empty")} disabled={props.busy || props.loading}>
+              <PackageIcon size={15} />
+              <span>{desktopT("desktop.hub.template.empty")}</span>
+              <small>{desktopT("desktop.hub.template.emptyDescription")}</small>
+            </button>
+            <button type="button" onClick={() => props.onCreateSolutionTemplate("hello-world")} disabled={props.busy || props.loading}>
+              <PackageIcon size={15} />
+              <span>{desktopT("desktop.hub.template.helloWorld")}</span>
+              <small>{desktopT("desktop.hub.template.helloWorldDescription")}</small>
+            </button>
+          </div>
+          {props.launchFolder ? (
+            <div className="project-hub-panel warning">
+              <strong>{desktopT("desktop.hub.folderFallback")}</strong>
+              <span title={props.launchFolder.path}>{props.launchFolder.path}</span>
+              {props.launchFolder.error ? <small>{props.launchFolder.error}</small> : null}
+            </div>
+          ) : null}
+          {props.loading ? <div className="project-hub-status">{desktopT("desktop.hub.loading")}</div> : null}
+          {props.error ? <div className="desktop-error">{props.error}</div> : null}
+        </section>
+      </section>
+    </main>
   );
 }
 
 function WorkflowMark(): JSX.Element {
   return <div className="desktop-mark">BP</div>;
-}
-
-function workflowTemplateName(template: WorkflowTemplateDefinition): string {
-  return desktopT(`workflowTemplate.${template.id}.name`);
-}
-
-function workflowTemplateDescription(template: WorkflowTemplateDefinition): string {
-  return desktopT(`workflowTemplate.${template.id}.description`);
-}
-
-function workflowTemplateDefaultGraphName(template: WorkflowTemplateDefinition): string {
-  return desktopT(`workflowTemplate.${template.id}.defaultGraphName`);
-}
-
-function workflowTemplateCategory(template: WorkflowTemplateDefinition): string {
-  return desktopT(`workflowTemplate.${template.id}.category`);
-}
-
-function workflowTemplatePreviewText(template: WorkflowTemplateDefinition): string {
-  return [
-    desktopT("desktop.preview.nodes", { count: template.preview.nodeCount }),
-    desktopT("desktop.preview.wires", { count: template.preview.linkCount }),
-    desktopT("desktop.preview.inputs", { count: template.preview.inputCount }),
-    desktopT("desktop.preview.outputs", { count: template.preview.outputCount })
-  ].join(" · ");
 }

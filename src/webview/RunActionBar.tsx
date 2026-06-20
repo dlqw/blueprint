@@ -54,7 +54,6 @@ export function RunActionBar(props: {
 }): JSX.Element {
   const [offset, setOffset] = useState<BarOffset>({ x: 0, y: 0 });
   const dragRef = useRef<DragState | undefined>();
-  const activeJobs = (props.running ? 1 : 0) + props.queuedRunCount;
   const progressClassName = props.running ? "run-action-progress active" : "run-action-progress";
   const validationStatus = props.errorCount ? "error" : props.warningCount ? "warning" : "idle";
   const statusClassName = props.runtimeState !== "idle" ? props.runtimeState : validationStatus;
@@ -163,12 +162,12 @@ export function RunActionBar(props: {
       ) : null}
       <button
         type="button"
-        className={props.bottomPanelOpen ? "run-action-count active" : "run-action-count"}
+        className="run-action-button"
         title={runCountTitle(props.bottomPanelOpen, props.running, props.queuedRunCount, props.t)}
         onClick={props.onToggleLogs}
       >
         <ListChecks size={14} />
-        <span>{activeJobs}</span>
+        <span>{props.t("runControls.history")}</span>
         <small>{props.runtimeHistoryCount}</small>
       </button>
       <button
@@ -178,6 +177,7 @@ export function RunActionBar(props: {
         onClick={props.onToggleLogs}
       >
         <TerminalSquare size={15} />
+        <span>{props.t("runControls.logs")}</span>
       </button>
       <span className={`run-action-status ${statusClassName}`}>{statusText}</span>
       {queueText ? <span className="run-action-queue-count" title={props.t("runControls.queuedRuns")}>{queueText}</span> : null}

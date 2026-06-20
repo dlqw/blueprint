@@ -1,5 +1,5 @@
-import { Bookmark, Braces, CheckCircle2, CircleDot, Copy, Focus, PanelRight, Pencil, Plus, Search, XCircle } from "lucide-react";
-import type { KeyboardEvent, RefObject } from "react";
+import { Braces, CheckCircle2, CircleDot, Copy, Focus, PanelRight, Pencil, Plus, Search, XCircle } from "lucide-react";
+import { useState, type KeyboardEvent, type RefObject } from "react";
 import type {
   BlueprintBookmark,
   BlueprintBreakpoint,
@@ -57,6 +57,8 @@ interface VariableReferenceEntry {
   access: "get" | "set";
 }
 
+type SidebarTabId = "find" | "blueprint" | "outline" | "references" | "bookmarks" | "breakpoints";
+
 export function BlueprintSidebar(props: {
   open: boolean;
   graph: BlueprintGraph;
@@ -107,6 +109,7 @@ export function BlueprintSidebar(props: {
   onClose(): void;
 }): JSX.Element {
   const t = props.t;
+  const [activeTab, setActiveTab] = useState<SidebarTabId>("outline");
   const templateName = (template: BlueprintNodeTemplate | undefined, fallback: string) => {
     const localized = localizeTemplate(template, props.locale, fallbackLocale, builtinNodeI18nCatalog);
     const source = template?.name ?? fallback;
@@ -178,6 +181,16 @@ export function BlueprintSidebar(props: {
   const templateGroups = groupTemplatesByCategory(props.templates, t, props.locale);
   const macroTemplates = props.templates.filter((template) => template.bodyKind === "macroExpansion");
   const graphTemplates = props.templates.filter((template) => template.bodyKind === "blueprintGraph");
+  const tabs: Array<{ id: SidebarTabId; label: string; count?: number }> = [
+    { id: "find", label: t("sidebar.findNodes"), count: props.nodeFindQuery.trim() ? props.nodeFindResults.length + props.solutionFindResults.length : undefined },
+    { id: "blueprint", label: t("sidebar.myBlueprint") },
+    { id: "outline", label: t("sidebar.graphOutline"), count: props.graphOutlineNodeCount + props.graphOutlineCommentCount },
+    { id: "references", label: t("sidebar.references"), count: selectedNode ? incomingReferences.length + outgoingReferences.length + templateReferences.length + variableReferences.length + solutionTemplateReferences.length + solutionVariableReferences.length + solutionSourceReferences.length : undefined },
+    { id: "bookmarks", label: t("sidebar.bookmarks"), count: props.bookmarks.length },
+    { id: "breakpoints", label: t("sidebar.breakpoints"), count: props.breakpointNodes.length }
+  ];
+  const tabClassName = (tab: SidebarTabId) => activeTab === tab ? "node-tab active" : "node-tab";
+  const tabContentClassName = (tab: SidebarTabId) => activeTab === tab ? "node-tab-content active" : "node-tab-content";
   const referenceGroupTitle = (label: string, count: number, nodeIds: string[], title: string) => (
     <div className="reference-group-title">
       <span>{label} <span>{count}</span></span>
@@ -223,64 +236,83 @@ export function BlueprintSidebar(props: {
           <PanelRight size={14} />
         </button>
       </div>
-      <button className="tool-button" onClick={props.onAddNode}>
-        <Plus size={16} /> {t("sidebar.addNode")}
-      </button>
-      <label className="side-search">
-        <Search size={14} />
-        <input
-          ref={props.nodeFindInputRef}
-          value={props.nodeFindQuery}
-          placeholder={t("sidebar.findNodes")}
-          onChange={(event) => props.onNodeFindQueryChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              const first = props.nodeFindResults[0];
-              if (first) {
-                props.onFocusNode(first.node.id);
-              }
-            }
-            if (event.key === "Escape") {
-              props.onNodeFindQueryChange("");
-              event.currentTarget.blur();
-            }
-          }}
-        />
-      </label>
-      {props.nodeFindQuery.trim() ? (
-        <div className="mini-list">
-          {props.nodeFindResults.map(({ node, template, matchLabel }) => (
-            <button
-              key={node.id}
-              className={props.selectedNodeIds.has(node.id) ? "mini-item active" : "mini-item"}
-              onClick={(event) => selectOrFocusNode(node.id, event)}
-            >
-              <span>{templateName(template, node.templateId)}</span>
-              <small>{matchLabel ?? node.id}</small>
-            </button>
-          ))}
-          {props.solutionFindResults.length ? (
-            <>
-              <span className="mini-empty">{t("sidebar.solutionMatches")}</span>
-              {props.solutionFindResults.map((entry) => (
+      <div className="node-editor-tabs" role="tablist" aria-label={t("sidebar.title")}>
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            aria-controls={`node-tab-${tab.id}`}
+            className={tabClassName(tab.id)}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            <span>{tab.label}</span>
+            {tab.count !== undefined ? <small>{tab.count}</small> : null}
+          </button>
+        ))}
+      </div>
+      <div className="node-editor-tab-shell">
+        <div id="node-tab-find" role="tabpanel" className={tabContentClassName("find")} hidden={activeTab !== "find"}>
+          <button className="tool-button" onClick={props.onAddNode}>
+            <Plus size={16} /> {t("sidebar.addNode")}
+          </button>
+          <label className="side-search">
+            <Search size={14} />
+            <input
+              ref={props.nodeFindInputRef}
+              value={props.nodeFindQuery}
+              placeholder={t("sidebar.findNodes")}
+              onChange={(event) => props.onNodeFindQueryChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  const first = props.nodeFindResults[0];
+                  if (first) {
+                    props.onFocusNode(first.node.id);
+                  }
+                }
+                if (event.key === "Escape") {
+                  props.onNodeFindQueryChange("");
+                  event.currentTarget.blur();
+                }
+              }}
+            />
+          </label>
+          {props.nodeFindQuery.trim() ? (
+            <div className="mini-list">
+              {props.nodeFindResults.map(({ node, template, matchLabel }) => (
                 <button
-                  key={`${entry.graphPath}:${entry.nodeId ?? "graph"}`}
-                  type="button"
-                  className="mini-item"
-                  title={t("sidebar.openSolutionSearchResult", { graphName: entry.graphName, nodeId: entry.nodeId ?? "" }).trim()}
-                  onClick={() => props.onOpenGraph(entry.graphPath)}
+                  key={node.id}
+                  className={props.selectedNodeIds.has(node.id) ? "mini-item active" : "mini-item"}
+                  onClick={(event) => selectOrFocusNode(node.id, event)}
                 >
-                  <span>{entry.nodeId ? `${templateName(entry.template, entry.nodeId)}` : entry.graphName}</span>
-                  <small>{entry.matchLabel ?? `${entry.projectName} / ${entry.graphKind}`}</small>
+                  <span>{templateName(template, node.templateId)}</span>
+                  <small>{matchLabel ?? node.id}</small>
                 </button>
               ))}
-            </>
-          ) : null}
-          {!props.nodeFindResults.length && !props.solutionFindResults.length ? <span className="mini-empty">{t("sidebar.noNodes")}</span> : null}
+              {props.solutionFindResults.length ? (
+                <>
+                  <span className="mini-empty">{t("sidebar.solutionMatches")}</span>
+                  {props.solutionFindResults.map((entry) => (
+                    <button
+                      key={`${entry.graphPath}:${entry.nodeId ?? "graph"}`}
+                      type="button"
+                      className="mini-item"
+                      title={t("sidebar.openSolutionSearchResult", { graphName: entry.graphName, nodeId: entry.nodeId ?? "" }).trim()}
+                      onClick={() => props.onOpenGraph(entry.graphPath)}
+                    >
+                      <span>{entry.nodeId ? `${templateName(entry.template, entry.nodeId)}` : entry.graphName}</span>
+                      <small>{entry.matchLabel ?? `${entry.projectName} / ${entry.graphKind}`}</small>
+                    </button>
+                  ))}
+                </>
+              ) : null}
+              {!props.nodeFindResults.length && !props.solutionFindResults.length ? <span className="mini-empty">{t("sidebar.noNodes")}</span> : null}
+            </div>
+          ) : <span className="mini-empty">{t("sidebar.findNodes")}</span>}
         </div>
-      ) : null}
-      <div className="structure-list">
-        <div className="mini-section-title"><Braces size={12} /> {t("sidebar.myBlueprint")}</div>
+        <div id="node-tab-blueprint" role="tabpanel" className={tabContentClassName("blueprint")} hidden={activeTab !== "blueprint"}>
+          <div className="structure-list">
         {props.solution ? (
           <>
             <div className="structure-group-title">{t("sidebar.solution")} <span>{props.solution.projects.reduce((count, project) => count + project.graphs.length, 0)}</span></div>
@@ -352,9 +384,10 @@ export function BlueprintSidebar(props: {
         {graphTemplates.length ? (
           <span className="mini-empty">{t("sidebar.graphTemplatesLoaded", { count: graphTemplates.length })}</span>
         ) : null}
-      </div>
-      <div className="outline-list">
-        <div className="mini-section-title"><PanelRight size={12} /> {t("sidebar.graphOutline")}</div>
+          </div>
+        </div>
+        <div id="node-tab-outline" role="tabpanel" className={tabContentClassName("outline")} hidden={activeTab !== "outline"}>
+          <div className="outline-list">
         <label className="side-search outline-search">
           <Search size={13} />
           <input
@@ -419,10 +452,11 @@ export function BlueprintSidebar(props: {
             {props.outlineQuery.trim() && !props.filteredGraphOutlineComments.length ? <span className="mini-empty">{t("sidebar.noMatchingComments")}</span> : null}
           </>
         ) : null}
-      </div>
-      {selectedNode ? (
-        <div className="reference-list">
-          <div className="mini-section-title"><Search size={12} /> {t("sidebar.references")}</div>
+          </div>
+        </div>
+        <div id="node-tab-references" role="tabpanel" className={tabContentClassName("references")} hidden={activeTab !== "references"}>
+          {selectedNode ? (
+          <div className="reference-list">
           <div className="reference-anchor">
             <span>{templateName(selectedTemplate, selectedNode.templateId)}</span>
             <small>{selectedNode.id}</small>
@@ -532,11 +566,12 @@ export function BlueprintSidebar(props: {
             </>
           ) : null}
           {!incomingReferences.length && !outgoingReferences.length && !templateReferences.length && !variableReferences.length && !solutionTemplateReferences.length && !solutionVariableReferences.length && !solutionSourceReferences.length ? <span className="mini-empty">{t("sidebar.noReferences")}</span> : null}
+          </div>
+          ) : <span className="mini-empty">{t("sidebar.noReferences")}</span>}
         </div>
-      ) : null}
-      {props.bookmarks.length ? (
-        <div className="bookmark-list">
-          <div className="mini-section-title"><Bookmark size={12} /> {t("sidebar.bookmarks")}</div>
+        <div id="node-tab-bookmarks" role="tabpanel" className={tabContentClassName("bookmarks")} hidden={activeTab !== "bookmarks"}>
+          {props.bookmarks.length ? (
+          <div className="bookmark-list">
           {props.bookmarks.map((bookmark) => (
             <div key={bookmark.id} className="mini-item bookmark-item">
               <button className="bookmark-focus" title={t("sidebar.focusBookmark", { label: bookmark.label })} onClick={() => props.onFocusBookmark(bookmark)}>
@@ -568,11 +603,12 @@ export function BlueprintSidebar(props: {
               </button>
             </div>
           ))}
+          </div>
+          ) : <span className="mini-empty">{t("sidebar.bookmarks")}</span>}
         </div>
-      ) : null}
-      {props.breakpointNodes.length ? (
-        <div className="breakpoint-list">
-          <div className="mini-section-title">{t("sidebar.breakpoints")}</div>
+        <div id="node-tab-breakpoints" role="tabpanel" className={tabContentClassName("breakpoints")} hidden={activeTab !== "breakpoints"}>
+          {props.breakpointNodes.length ? (
+          <div className="breakpoint-list">
           {props.breakpointNodes.map((node) => {
             const template = getEffectiveTemplateForNode(props.graph, props.templates, node);
             const breakpoint = props.breakpoints.find((candidate) => candidate.nodeId === node.id);
@@ -608,8 +644,10 @@ export function BlueprintSidebar(props: {
               </div>
             );
           })}
+          </div>
+          ) : <span className="mini-empty">{t("sidebar.breakpoints")}</span>}
         </div>
-      ) : null}
+      </div>
     </aside>
   );
 }

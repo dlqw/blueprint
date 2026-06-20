@@ -13,10 +13,11 @@
     "windows": [
       {
         "title": "Blueprint IDE",
-        "width": 1400,
-        "height": 900,
-        "minWidth": 960,
-        "minHeight": 640
+        "width": 760,
+        "height": 420,
+        "minWidth": 720,
+        "minHeight": 400,
+        "decorations": false
       }
     ],
     "security": {

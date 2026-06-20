@@ -139,6 +139,12 @@ textarea:focus-visible {
   background: var(--bg);
 }
 
+.shell.external-dock-panels {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  width: 100%;
+}
+
 .side-panel {
   min-width: 0;
   min-height: 0;
@@ -154,8 +160,20 @@ textarea:focus-visible {
   grid-row: 1;
 }
 
+.nav-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 8px;
+  overflow: hidden;
+}
+
 .editor {
   grid-column: 3;
+  grid-row: 1;
+}
+
+.shell.external-dock-panels .editor {
+  grid-column: 1;
   grid-row: 1;
 }
 
@@ -303,6 +321,77 @@ textarea:focus-visible {
 .panel-title button:hover {
   border-color: var(--amber);
   color: var(--text);
+}
+
+.node-editor-tabs {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  min-height: 34px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
+.node-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  gap: 6px;
+  min-width: max-content;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel-2);
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.node-tab:hover {
+  border-color: var(--amber);
+  color: var(--text);
+}
+
+.node-tab.active {
+  border-color: var(--cyan);
+  background: var(--active-bg);
+  color: var(--active-fg);
+}
+
+.node-tab small {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  padding: 0 5px;
+}
+
+.node-editor-tab-shell {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.node-tab-content {
+  display: none;
+  min-width: 0;
+  height: 100%;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.node-tab-content.active {
+  display: block;
 }
 
 .tool-button,
@@ -752,19 +841,31 @@ textarea:focus-visible {
   z-index: 40;
   display: flex;
   align-items: center;
-  align-content: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 16px;
-  min-height: 48px;
+  justify-content: flex-end;
+  gap: 6px;
+  height: 42px;
+  min-height: 42px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
   box-shadow: var(--shadow-interface);
-  padding: 5px 10px;
+  padding: 5px 8px;
+  overflow: visible;
+}
+
+.topbar.toolbar-align-left {
+  justify-content: flex-start;
+}
+
+.topbar.toolbar-align-center {
+  justify-content: center;
+}
+
+.topbar.toolbar-align-right {
+  justify-content: flex-end;
 }
 
 .graph-title {
-  display: flex;
+  display: none;
   align-items: center;
   flex: 1 1 220px;
   min-width: 0;
@@ -793,19 +894,21 @@ textarea:focus-visible {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  flex: 1 1 560px;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  gap: 5px;
   min-width: 0;
-  row-gap: 4px;
+  max-width: 100%;
+  height: 30px;
 }
 
 .toolbar-group {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
-  gap: 4px;
-  padding-right: 8px;
+  gap: 3px;
+  height: 30px;
+  padding-right: 5px;
   border-right: 1px solid var(--line);
 }
 
@@ -818,10 +921,10 @@ textarea:focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 4px;
   min-width: 42px;
   width: auto;
-  max-width: 112px;
+  max-width: 58px;
   font-size: 11px;
   font-weight: 800;
   white-space: nowrap;
@@ -847,6 +950,8 @@ textarea:focus-visible {
   align-items: start;
   gap: 8px;
   width: min(420px, calc(100vw - 24px));
+  max-height: min(600px, calc(100vh - 84px));
+  overflow: auto;
   padding: 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1317,7 +1422,7 @@ textarea:focus-visible {
 }
 
 .selection-toolbox {
-  position: absolute;
+  position: fixed;
   z-index: 18;
   display: inline-flex;
   align-items: center;
@@ -1406,9 +1511,14 @@ textarea:focus-visible {
   color: var(--text);
   cursor: grab;
   padding: 6px 8px;
+  pointer-events: none;
   touch-action: none;
   transform: translate(calc(-50% + var(--run-actionbar-x, 0px)), var(--run-actionbar-y, 0px));
   user-select: none;
+}
+
+.run-actionbar > * {
+  pointer-events: auto;
 }
 
 .run-actionbar.dragging {
@@ -1454,6 +1564,12 @@ textarea:focus-visible {
   max-width: 72px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.run-action-button small {
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
 }
 
 .run-action-button.icon-only {
@@ -1588,10 +1704,6 @@ textarea:focus-visible {
 }
 
 @media (max-width: 1160px) {
-  .toolbar-secondary {
-    display: none;
-  }
-
   .shell,
   .shell.left-collapsed,
   .shell.right-collapsed,
@@ -1622,27 +1734,18 @@ textarea:focus-visible {
 
 @media (max-width: 760px) {
   .topbar {
-    gap: 8px;
-    padding: 6px 8px;
-  }
-
-  .graph-title {
-    flex-basis: 100%;
-  }
-
-  .graph-title span {
-    display: none;
+    gap: 5px;
+    padding: 5px 6px;
   }
 
   .toolbar {
-    justify-content: flex-start;
-    flex-basis: 100%;
-    gap: 6px;
+    justify-content: flex-end;
+    gap: 4px;
   }
 
   .toolbar-group {
     gap: 3px;
-    padding-right: 6px;
+    padding-right: 4px;
   }
 
   .toolbar-overflow-menu {
@@ -3495,6 +3598,12 @@ button.runtime-compare-item:hover {
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+
+.run-panel-title {
+  flex: 0 0 auto;
+  color: var(--text);
+  font-size: 12px;
 }
 
 .run-panel-details {

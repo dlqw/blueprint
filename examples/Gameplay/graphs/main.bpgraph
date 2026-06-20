@@ -1,206 +1,209 @@
 {
+  "debug": {
+    "breakpoints": []
+  },
+  "description": "Sample blueprint function with TypeScript mapped data flow. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0.",
   "format": "blueprint-graph",
-  "version": 1,
   "id": "main",
+  "layout": {
+    "viewport": {
+      "x": 357.3248353470142,
+      "y": 178.75123173101588,
+      "zoom": 0.35
+    }
+  },
+  "links": [
+    {
+      "flowKind": "control",
+      "fromNodeId": "entry",
+      "fromPortId": "then",
+      "id": "link-entry-log",
+      "toNodeId": "traceMacro1",
+      "toPortId": "exec"
+    },
+    {
+      "flowKind": "control",
+      "fromNodeId": "traceMacro1",
+      "fromPortId": "then",
+      "id": "link-trace-log",
+      "toNodeId": "setScore1",
+      "toPortId": "exec"
+    },
+    {
+      "flowKind": "control",
+      "fromNodeId": "setScore1",
+      "fromPortId": "then",
+      "id": "link-set-log",
+      "toNodeId": "log1",
+      "toPortId": "exec"
+    },
+    {
+      "flowKind": "control",
+      "fromNodeId": "log1",
+      "fromPortId": "then",
+      "id": "link-log-end",
+      "toNodeId": "announce1",
+      "toPortId": "exec"
+    },
+    {
+      "flowKind": "control",
+      "fromNodeId": "announce1",
+      "fromPortId": "then",
+      "id": "link-announce-end",
+      "toNodeId": "end",
+      "toPortId": "exec"
+    },
+    {
+      "contextVariableId": "ctx-double-set",
+      "flowKind": "data",
+      "fromNodeId": "double1",
+      "fromPortId": "result",
+      "id": "link-double-set",
+      "toNodeId": "setScore1",
+      "toPortId": "value"
+    },
+    {
+      "contextVariableId": "ctx-get-format",
+      "flowKind": "data",
+      "fromNodeId": "getScore1",
+      "fromPortId": "value",
+      "id": "link-get-format",
+      "toNodeId": "format1",
+      "toPortId": "score"
+    },
+    {
+      "contextVariableId": "ctx-format-log",
+      "flowKind": "data",
+      "fromNodeId": "format1",
+      "fromPortId": "message",
+      "id": "link-format-log",
+      "toNodeId": "log1",
+      "toPortId": "message"
+    }
+  ],
   "name": "Main",
-  "description": "Sample blueprint function with TypeScript mapped data flow.",
+  "nodes": [
+    {
+      "id": "entry",
+      "inputBindings": {},
+      "position": {
+        "x": 80,
+        "y": 120
+      },
+      "templateId": "builtin.control.entry"
+    },
+    {
+      "id": "double1",
+      "inputBindings": {
+        "value": {
+          "literalValue": 21,
+          "portId": "value",
+          "sourceKind": "literal"
+        }
+      },
+      "position": {
+        "x": 376.5797896662094,
+        "y": -82.68111396692258
+      },
+      "templateId": "ts.TypeScript.Math.Double"
+    },
+    {
+      "id": "setScore1",
+      "inputBindings": {
+        "key": {
+          "literalValue": "score",
+          "portId": "key",
+          "sourceKind": "literal"
+        },
+        "value": {
+          "linkId": "link-double-set",
+          "portId": "value",
+          "sourceKind": "link"
+        }
+      },
+      "position": {
+        "x": 640,
+        "y": 196
+      },
+      "templateId": "builtin.blackboard.set"
+    },
+    {
+      "id": "getScore1",
+      "inputBindings": {
+        "key": {
+          "literalValue": "score",
+          "portId": "key",
+          "sourceKind": "literal"
+        }
+      },
+      "position": {
+        "x": 640,
+        "y": -124
+      },
+      "templateId": "builtin.blackboard.get"
+    },
+    {
+      "id": "format1",
+      "inputBindings": {
+        "score": {
+          "linkId": "link-get-format",
+          "portId": "score",
+          "sourceKind": "link"
+        }
+      },
+      "position": {
+        "x": 684.4444444444445,
+        "y": 36.59258355034722
+      },
+      "templateId": "graph.format-score"
+    },
+    {
+      "id": "traceMacro1",
+      "inputBindings": {},
+      "position": {
+        "x": 242.22188022594295,
+        "y": 371.9022821019363
+      },
+      "templateId": "macro.trace-macro"
+    },
+    {
+      "id": "log1",
+      "inputBindings": {
+        "message": {
+          "linkId": "link-format-log",
+          "portId": "message",
+          "sourceKind": "link"
+        }
+      },
+      "position": {
+        "x": 592.5124009861482,
+        "y": 438.18679120080674
+      },
+      "templateId": "builtin.debug.log"
+    },
+    {
+      "id": "announce1",
+      "inputBindings": {},
+      "position": {
+        "x": 980,
+        "y": 196
+      },
+      "templateId": "graph.announce"
+    },
+    {
+      "id": "end",
+      "inputBindings": {},
+      "position": {
+        "x": 1320,
+        "y": 196
+      },
+      "templateId": "builtin.control.end"
+    }
+  ],
   "templateMetadata": {
     "creationPath": "Blueprints",
     "inputs": [],
     "outputs": []
   },
-  "nodes": [
-    {
-      "id": "entry",
-      "templateId": "builtin.control.entry",
-      "position": {
-        "x": 80,
-        "y": 120
-      },
-      "inputBindings": {}
-    },
-    {
-      "id": "double1",
-      "templateId": "ts.TypeScript.Math.Double",
-      "position": {
-        "x": 340,
-        "y": 36
-      },
-      "inputBindings": {
-        "value": {
-          "portId": "value",
-          "sourceKind": "literal",
-          "literalValue": 21
-        }
-      }
-    },
-    {
-      "id": "setScore1",
-      "templateId": "builtin.blackboard.set",
-      "position": {
-        "x": 640,
-        "y": 196
-      },
-      "inputBindings": {
-        "key": {
-          "portId": "key",
-          "sourceKind": "literal",
-          "literalValue": "score"
-        },
-        "value": {
-          "portId": "value",
-          "sourceKind": "link",
-          "linkId": "link-double-set"
-        }
-      }
-    },
-    {
-      "id": "getScore1",
-      "templateId": "builtin.blackboard.get",
-      "position": {
-        "x": 640,
-        "y": -124
-      },
-      "inputBindings": {
-        "key": {
-          "portId": "key",
-          "sourceKind": "literal",
-          "literalValue": "score"
-        }
-      }
-    },
-    {
-      "id": "format1",
-      "templateId": "graph.format-score",
-      "position": {
-        "x": 640,
-        "y": 36
-      },
-      "inputBindings": {
-        "score": {
-          "portId": "score",
-          "sourceKind": "link",
-          "linkId": "link-get-format"
-        }
-      }
-    },
-    {
-      "id": "traceMacro1",
-      "templateId": "macro.trace-macro",
-      "position": {
-        "x": 360,
-        "y": 196
-      },
-      "inputBindings": {}
-    },
-    {
-      "id": "log1",
-      "templateId": "builtin.debug.log",
-      "position": {
-        "x": 640,
-        "y": 196
-      },
-      "inputBindings": {
-        "message": {
-          "portId": "message",
-          "sourceKind": "link",
-          "linkId": "link-format-log"
-        }
-      }
-    },
-    {
-      "id": "announce1",
-      "templateId": "graph.announce",
-      "position": {
-        "x": 980,
-        "y": 196
-      },
-      "inputBindings": {}
-    },
-    {
-      "id": "end",
-      "templateId": "builtin.control.end",
-      "position": {
-        "x": 1320,
-        "y": 196
-      },
-      "inputBindings": {}
-    }
-  ],
-  "links": [
-    {
-      "id": "link-entry-log",
-      "fromNodeId": "entry",
-      "fromPortId": "then",
-      "toNodeId": "traceMacro1",
-      "toPortId": "exec",
-      "flowKind": "control"
-    },
-    {
-      "id": "link-trace-log",
-      "fromNodeId": "traceMacro1",
-      "fromPortId": "then",
-      "toNodeId": "setScore1",
-      "toPortId": "exec",
-      "flowKind": "control"
-    },
-    {
-      "id": "link-set-log",
-      "fromNodeId": "setScore1",
-      "fromPortId": "then",
-      "toNodeId": "log1",
-      "toPortId": "exec",
-      "flowKind": "control"
-    },
-    {
-      "id": "link-log-end",
-      "fromNodeId": "log1",
-      "fromPortId": "then",
-      "toNodeId": "announce1",
-      "toPortId": "exec",
-      "flowKind": "control"
-    },
-    {
-      "id": "link-announce-end",
-      "fromNodeId": "announce1",
-      "fromPortId": "then",
-      "toNodeId": "end",
-      "toPortId": "exec",
-      "flowKind": "control"
-    },
-    {
-      "id": "link-double-set",
-      "fromNodeId": "double1",
-      "fromPortId": "result",
-      "toNodeId": "setScore1",
-      "toPortId": "value",
-      "flowKind": "data",
-      "contextVariableId": "ctx-double-set"
-    },
-    {
-      "id": "link-get-format",
-      "fromNodeId": "getScore1",
-      "fromPortId": "value",
-      "toNodeId": "format1",
-      "toPortId": "score",
-      "flowKind": "data",
-      "contextVariableId": "ctx-get-format"
-    },
-    {
-      "id": "link-format-log",
-      "fromNodeId": "format1",
-      "fromPortId": "message",
-      "toNodeId": "log1",
-      "toPortId": "message",
-      "flowKind": "data",
-      "contextVariableId": "ctx-format-log"
-    }
-  ],
-  "layout": {
-    "viewport": {
-      "x": 0,
-      "y": 0,
-      "zoom": 1
-    }
-  }
+  "version": 1
 }

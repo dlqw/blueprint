@@ -83,7 +83,8 @@ describe("RunActionBar", () => {
   it("shows queued run counts from the runtime protocol", () => {
     renderRunActionBar({ running: true, runtimeState: "running", queuedRunCount: 2 });
 
-    expect(screen.getByTitle("Show run history (1 running, 2 queued)")).toHaveTextContent("3");
+    expect(screen.getByTitle("Show run history (1 running, 2 queued)")).toHaveTextContent("History");
+    expect(screen.getByTitle("Show run history (1 running, 2 queued)")).toHaveTextContent("2");
     expect(screen.getByTitle("Queued runs")).toHaveTextContent("2 queued");
   });
 

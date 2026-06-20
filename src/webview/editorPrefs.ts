@@ -3,6 +3,7 @@ import { defaultThemeId, normalizeCustomTheme, normalizeThemeId, type CustomThem
 
 export type LinkRenderMode = "spline" | "straight" | "orthogonal" | "hidden";
 export type ActionBarPlacement = "bottom" | "top";
+export type ToolbarAlignment = "left" | "center" | "right";
 export type NodeLabelMode = "localized" | "source" | "both";
 
 export interface GraphEditorPrefs {
@@ -11,6 +12,7 @@ export interface GraphEditorPrefs {
   gridVisible: boolean;
   snapToGrid: boolean;
   actionBarPlacement: ActionBarPlacement;
+  toolbarAlignment: ToolbarAlignment;
   nodeLabelMode: NodeLabelMode;
   language: Locale;
   theme: ThemeId;
@@ -20,6 +22,7 @@ export interface GraphEditorPrefs {
 
 export const linkRenderModes: LinkRenderMode[] = ["spline", "straight", "orthogonal", "hidden"];
 export const actionBarPlacements: ActionBarPlacement[] = ["bottom", "top"];
+export const toolbarAlignments: ToolbarAlignment[] = ["left", "center", "right"];
 export const nodeLabelModes: NodeLabelMode[] = ["localized", "source", "both"];
 
 export const defaultGraphEditorPrefs: GraphEditorPrefs = {
@@ -28,6 +31,7 @@ export const defaultGraphEditorPrefs: GraphEditorPrefs = {
   gridVisible: true,
   snapToGrid: false,
   actionBarPlacement: "bottom",
+  toolbarAlignment: "right",
   nodeLabelMode: "localized",
   language: defaultLocale,
   theme: defaultThemeId,
@@ -43,6 +47,7 @@ export function readGraphEditorPrefs(state: unknown): GraphEditorPrefs {
     gridVisible: typeof editorPrefs.gridVisible === "boolean" ? editorPrefs.gridVisible : defaultGraphEditorPrefs.gridVisible,
     snapToGrid: typeof editorPrefs.snapToGrid === "boolean" ? editorPrefs.snapToGrid : defaultGraphEditorPrefs.snapToGrid,
     actionBarPlacement: normalizeActionBarPlacement(editorPrefs.actionBarPlacement),
+    toolbarAlignment: normalizeToolbarAlignment(editorPrefs.toolbarAlignment),
     nodeLabelMode: normalizeNodeLabelMode(editorPrefs.nodeLabelMode),
     language: normalizeLocale(editorPrefs.language),
     theme: normalizeThemeId(editorPrefs.theme),
@@ -61,6 +66,7 @@ export function mergeGraphEditorPrefsState(state: unknown, prefs: GraphEditorPre
     gridVisible: prefs.gridVisible,
     snapToGrid: prefs.snapToGrid,
     actionBarPlacement: prefs.actionBarPlacement,
+    toolbarAlignment: prefs.toolbarAlignment,
     nodeLabelMode: prefs.nodeLabelMode,
     language: prefs.language,
     theme: prefs.theme,
@@ -99,6 +105,12 @@ export function normalizeActionBarPlacement(value: unknown): ActionBarPlacement 
   return typeof value === "string" && actionBarPlacements.includes(value as ActionBarPlacement)
     ? value as ActionBarPlacement
     : defaultGraphEditorPrefs.actionBarPlacement;
+}
+
+export function normalizeToolbarAlignment(value: unknown): ToolbarAlignment {
+  return typeof value === "string" && toolbarAlignments.includes(value as ToolbarAlignment)
+    ? value as ToolbarAlignment
+    : defaultGraphEditorPrefs.toolbarAlignment;
 }
 
 export function normalizeNodeLabelMode(value: unknown): NodeLabelMode {

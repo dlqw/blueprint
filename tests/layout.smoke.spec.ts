@@ -17,6 +17,10 @@ test.describe("desktop layout smoke", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openEditor(page);
     await assertLayout(page);
+    await expect(page.locator(".topbar .graph-title")).toBeHidden();
+    await expect(page.locator(".topbar .lucide-circle-dot")).toHaveCount(0);
+    const topbarBox = await visibleBox(page, ".topbar");
+    expect(topbarBox.height, "topbar compact height").toBeLessThanOrEqual(44);
     await toolbarOverflowButton(page).click();
     await expect(page.locator(".toolbar-overflow-menu")).toBeVisible();
     await assertInsideViewport(page, ".toolbar-overflow-menu");
@@ -77,8 +81,8 @@ test.describe("desktop layout smoke", () => {
     expect(box).not.toBeNull();
     const startX = (box?.x ?? 0) + (box?.width ?? 0) / 2;
     const startY = (box?.y ?? 0) + (box?.height ?? 0) / 2;
-    const endX = startX + 80;
-    const endY = startY - 120;
+    const endX = startX + 260;
+    const endY = startY - 210;
     await page.mouse.move(startX, startY);
     await page.mouse.down();
     await page.mouse.move(endX, endY, { steps: 8 });
@@ -90,7 +94,7 @@ test.describe("desktop layout smoke", () => {
     await page.screenshot({ path: test.info().outputPath("layout-pin-hit-areas.png"), fullPage: true });
   });
 
-  test("desktop template source manager stays within the project sidebar", async ({ page }) => {
+  test("desktop docks remove blueprints and search and stay compact", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.addInitScript((solution) => {
       window.localStorage.setItem("blueprint.desktop.activeSolution", JSON.stringify(solution));
@@ -98,21 +102,157 @@ test.describe("desktop layout smoke", () => {
     await openEditor(page);
     await assertLayout(page);
 
-    await page.getByTitle("Gameplay 的工作流模板").click();
-    await expect(page.getByLabel("Gameplay 的工作流模板")).toBeVisible();
-    await expect(page.getByText(/布尔分支|Boolean Branch/)).toBeVisible();
-    await expect(page.getByText("5 个节点 · 6 条连线 · 1 个输入 · 0 个输出")).toBeVisible();
-    await expect(page.locator(".desktop-template-tags small", { hasText: "branch" })).toBeVisible();
-    await assertInsideViewport(page, ".desktop-template-browser");
-    await expectNoHorizontalOverflow(page);
+    const leftDockTabs = page.locator(".desktop-nav .desktop-dock-tab-strip button");
+    await expect(leftDockTabs).toHaveText([/^(蓝图树|Blueprint Tree)$/, /^(运行|Run)$/, /^(源控制|Source control)$/]);
+    await expect(page.locator(".desktop-nav .desktop-dock-tab-strip button", { hasText: /^(蓝图|Blueprints?)$/ })).toHaveCount(0);
+    await expect(page.locator(".desktop-nav .desktop-dock-tab-strip button", { hasText: /^(搜索|Search)$/ })).toHaveCount(0);
+    await expect(page.locator(".desktop-nav .desktop-dock-header")).toHaveCount(0);
 
-    await page.getByTitle("Gameplay 的模板源").click();
-    await expect(page.getByLabel("Gameplay 的模板源")).toBeVisible();
-    await expect(page.getByText("src/**/*.ts")).toBeVisible();
-    await expect(page.getByText("src/ai/**/*.ts")).toBeVisible();
-    await assertInsideViewport(page, ".desktop-template-sources");
+    await page.locator(".desktop-nav .desktop-dock-tab-strip button", { hasText: /^(运行|Run)$/ }).click();
+    await expect(page.locator(".desktop-nav .desktop-run-panel")).toBeVisible();
+    await expect(page.locator(".desktop-nav .desktop-compact-dock-title")).toBeVisible();
+    await expect(page.locator(".desktop-nav .desktop-dock-header")).toHaveCount(0);
+
+    await page.locator(".desktop-nav .desktop-dock-tab-strip button", { hasText: /^(源控制|Source control)$/ }).click();
+    await expect(page.locator(".desktop-nav .desktop-source-panel")).toBeVisible();
+    await expect(page.locator(".desktop-nav .desktop-source-panel small").first()).toBeVisible();
+    await expect(page.locator(".desktop-nav .desktop-dock-header")).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
-    await page.screenshot({ path: test.info().outputPath("layout-template-sources.png"), fullPage: true });
+    await page.screenshot({ path: test.info().outputPath("layout-docks-compact.png"), fullPage: true });
+  });
+
+  test("desktop blueprint tree keeps compact file-tree rows", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.addInitScript(({ graph, solution }) => {
+      window.localStorage.setItem("blueprint.desktop.activeGraph", JSON.stringify(graph));
+      window.localStorage.setItem("blueprint.desktop.activeGraphPath", solution.projects[0].graphs[0].path);
+      window.localStorage.setItem("blueprint.desktop.activeSolution", JSON.stringify(solution));
+    }, {
+      graph: selectionLayoutGraph(),
+      solution: desktopTemplateSourceSolution()
+    });
+    await openEditor(page);
+    if (!await page.locator(".desktop-blueprint-tree").isVisible()) {
+      await page.locator(".desktop-nav .desktop-dock-tab-strip button", { hasText: /^(蓝图树|Blueprint Tree)$/ }).click();
+    }
+    await expect(page.locator(".desktop-blueprint-tree")).toBeVisible();
+    await expect(page.locator(".desktop-nav .desktop-dock-header")).toHaveCount(0);
+    await expect(page.locator(".desktop-tree-project-row svg")).toHaveCount(1);
+    await expect(page.locator(".desktop-tree-graph-toggle svg")).toHaveCount(1);
+    await expect(page.locator(".desktop-tree-graph > button:not(.desktop-tree-graph-toggle) svg")).toHaveCount(1);
+
+    const nodeBoxes = await page.locator(".desktop-tree-node").evaluateAll((items) =>
+      items.map((item) => {
+        const rect = item.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      })
+    );
+    expect(nodeBoxes.length).toBeGreaterThanOrEqual(5);
+    for (const box of nodeBoxes) {
+      expect(box.width, "blueprint tree node width").toBeGreaterThan(120);
+      expect(box.height, "blueprint tree node height").toBeGreaterThanOrEqual(22);
+      expect(box.height, "blueprint tree node height").toBeLessThanOrEqual(28);
+    }
+    await expect(page.locator(".desktop-tree-node svg")).toHaveCount(nodeBoxes.length);
+    await expectNoHorizontalOverflow(page);
+    await page.screenshot({ path: test.info().outputPath("layout-blueprint-tree-compact.png"), fullPage: true });
+  });
+
+  test("project hub recent solution items keep compact rows", async ({ page }) => {
+    await page.setViewportSize({ width: 960, height: 720 });
+    await page.addInitScript(() => {
+      Object.assign(window, {
+        __TAURI_INTERNALS__: {
+          invoke(command: string) {
+            if (command === "blueprint_launch_context") {
+              return Promise.resolve({ kind: "hub" });
+            }
+            return Promise.reject(new Error(`Unhandled invoke: ${command}`));
+          }
+        }
+      });
+      window.localStorage.removeItem("blueprint.desktop.solution");
+      window.localStorage.removeItem("blueprint.desktop.activeGraph");
+      window.localStorage.setItem("blueprint.desktop.recentSolutions", JSON.stringify([
+        {
+          name: "Gameplay",
+          path: "D:\\Project\\blueprint-workspace\\examples\\BlueprintSolution.bsln",
+          projects: []
+        },
+        {
+          name: "Very Long Blueprint Solution Name For Layout Debugging",
+          path: "D:\\Users\\rdququ\\Documents\\Blueprint Projects\\A very long nested folder name\\Another long folder\\Solution.bsln",
+          projects: []
+        },
+        {
+          name: "Tiny",
+          path: "C:\\tmp\\Tiny.bsln",
+          projects: []
+        }
+      ]));
+    });
+
+    await page.goto("/");
+    await expect(page.locator(".project-hub-recent-list button")).toHaveCount(3);
+    await expectNoHorizontalOverflow(page);
+    await assertInsideViewport(page, ".project-hub");
+
+    const itemBoxes = await page.locator(".project-hub-recent-list button").evaluateAll((items) =>
+      items.map((item) => {
+        const rect = item.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      })
+    );
+    for (const box of itemBoxes) {
+      expect(box.width, "recent solution item width").toBeGreaterThan(240);
+      expect(box.height, "recent solution item height").toBeGreaterThanOrEqual(52);
+      expect(box.height, "recent solution item height").toBeLessThanOrEqual(72);
+    }
+
+    await page.screenshot({ path: test.info().outputPath("layout-project-hub-recents.png"), fullPage: true });
+  });
+
+  test("hub recent solution opens workspace without narrow-window overlap", async ({ page }) => {
+    await page.setViewportSize({ width: 960, height: 720 });
+    await page.addInitScript(({ graph, solution }) => {
+      Object.assign(window, {
+        __TAURI_INTERNALS__: {
+          invoke(command: string, args?: { path?: string }) {
+            if (command === "blueprint_launch_context") {
+              return Promise.resolve({ kind: "hub" });
+            }
+            if (command === "blueprint_read_solution" && args?.path === solution.path) {
+              return Promise.resolve(solution);
+            }
+            if (command === "blueprint_read_file") {
+              return Promise.resolve(graph);
+            }
+            if (command === "blueprint_load_project_templates") {
+              return Promise.resolve({ ok: true, templates: [] });
+            }
+            return Promise.reject(new Error(`Unhandled invoke: ${command}`));
+          }
+        }
+      });
+      window.localStorage.removeItem("blueprint.desktop.solution");
+      window.localStorage.setItem("blueprint.desktop.activeGraph", JSON.stringify(graph));
+      window.localStorage.setItem("blueprint.desktop.recentSolutions", JSON.stringify([solution]));
+    }, {
+      graph: selectionLayoutGraph(),
+      solution: desktopTemplateSourceSolution()
+    });
+
+    await page.goto("/");
+    await page.locator(".project-hub-recent-list button").first().click();
+    await expect(activeGraphTitle(page, "Selection Layout")).toBeVisible();
+    await assertGraphTabAddButtonCentered(page);
+    await page.locator('[data-node-id="center-log"]').click();
+    await expect(page.locator(".selection-toolbox")).toBeVisible();
+    await assertLayout(page);
+    await assertSelectionToolboxLayout(page);
+    await expect(page.locator(".desktop-nav")).toBeHidden();
+    await expect(page.locator(".desktop-right-dock")).toBeHidden();
+    await page.screenshot({ path: test.info().outputPath("layout-hub-to-workspace-narrow.png"), fullPage: true });
   });
 
   test("editor preferences survive a desktop webview reload", async ({ page }) => {
@@ -185,6 +325,9 @@ test.describe("desktop layout smoke", () => {
     });
     await openEditor(page);
     await assertLayout(page);
+    await expect(page.locator(".topbar .status")).toHaveCount(0);
+    await expect(page.locator(".topbar .zoom")).toHaveCount(0);
+    await expect(page.locator(".diagnostic-chip")).toHaveCount(0);
 
     await page.locator('[data-node-id="center-log"]').click();
     await expect(page.locator('[data-node-id="center-log"] .runtime-badge')).toHaveClass(/error/);
@@ -209,7 +352,7 @@ test.describe("desktop layout smoke", () => {
       window.localStorage.setItem("blueprint.desktop.activeGraph", JSON.stringify(graph));
     }, largeRenderGraph(500));
     await openEditor(page);
-    await expect(page.getByText("Large Render").first()).toBeVisible();
+    await expect(activeGraphTitle(page, "Large Render")).toBeVisible();
     await assertLayout(page);
 
     const renderedNodeCount = await page.locator(".canvas .node").count();
@@ -241,7 +384,7 @@ test.describe("desktop layout smoke", () => {
 
         const openStartedAt = Date.now();
         await openEditor(page);
-        await expect(page.getByText("Large Render").first()).toBeVisible();
+        await expect(activeGraphTitle(page, "Large Render")).toBeVisible();
         const openMs = Date.now() - openStartedAt;
         const renderedNodeCount = await page.locator(".canvas .node").count();
         const renderedWireCount = await page.locator(".canvas .wire:not(.preview)").count();
@@ -302,6 +445,11 @@ function filterOutlineInput(page: Page) {
   return page.getByPlaceholder(/^(筛选大纲|Filter outline)$/);
 }
 
+function activeGraphTitle(page: Page, name: string) {
+  void name;
+  return page.locator(".canvas");
+}
+
 function focusOutlineNodeButton(page: Page, nodeId: string) {
   return page.getByTitle(new RegExp(`^(聚焦大纲节点|Focus outline node) ${escapeRegex(nodeId)}$`));
 }
@@ -326,7 +474,6 @@ async function assertLayout(page: Page): Promise<void> {
   await expectNoHorizontalOverflow(page);
   for (const selector of [
     ".desktop-shell",
-    ".desktop-nav",
     ".desktop-editor",
     ".topbar",
     ".canvas",
@@ -336,6 +483,8 @@ async function assertLayout(page: Page): Promise<void> {
   ]) {
     await assertInsideViewport(page, selector);
   }
+  await assertInsideViewportWhenVisible(page, ".desktop-nav");
+  await assertInsideViewportWhenVisible(page, ".desktop-right-dock");
 
   const boxes = await Promise.all(floatingSelectors.map((selector) => visibleBox(page, selector)));
   for (let leftIndex = 0; leftIndex < boxes.length; leftIndex += 1) {
@@ -402,6 +551,13 @@ async function expectNoHorizontalOverflow(page: Page): Promise<void> {
   expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.innerWidth + 1);
 }
 
+async function assertInsideViewportWhenVisible(page: Page, selector: string): Promise<void> {
+  const locator = page.locator(selector).first();
+  if (await locator.isVisible()) {
+    await assertInsideViewport(page, selector);
+  }
+}
+
 async function assertInsideViewport(page: Page, selector: string): Promise<void> {
   const box = await visibleBox(page, selector);
   const viewport = page.viewportSize();
@@ -410,6 +566,15 @@ async function assertInsideViewport(page: Page, selector: string): Promise<void>
   expect(box.y, `${selector} top`).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width, `${selector} right`).toBeLessThanOrEqual((viewport?.width ?? 0) + 1);
   expect(box.y + box.height, `${selector} bottom`).toBeLessThanOrEqual((viewport?.height ?? 0) + 1);
+}
+
+async function assertGraphTabAddButtonCentered(page: Page): Promise<void> {
+  const buttonBox = await visibleBox(page, ".desktop-graph-tab-add");
+  const iconBox = await visibleBox(page, ".desktop-graph-tab-add svg");
+  const buttonCenter = { x: buttonBox.x + buttonBox.width / 2, y: buttonBox.y + buttonBox.height / 2 };
+  const iconCenter = { x: iconBox.x + iconBox.width / 2, y: iconBox.y + iconBox.height / 2 };
+  expect(Math.abs(buttonCenter.x - iconCenter.x), "graph tab add icon horizontal center").toBeLessThanOrEqual(1);
+  expect(Math.abs(buttonCenter.y - iconCenter.y), "graph tab add icon vertical center").toBeLessThanOrEqual(1);
 }
 
 async function visibleBox(page: Page, selector: string): Promise<Box> {

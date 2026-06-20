@@ -90,9 +90,11 @@ import {
   readGraphEditorPrefs,
   readGraphEditorPrefsFromText,
   serializeGraphEditorPrefs,
+  toolbarAlignments,
   type GraphEditorPrefs,
   type LinkRenderMode,
-  type NodeLabelMode
+  type NodeLabelMode,
+  type ToolbarAlignment
 } from "./editorPrefs";
 import { createEditorHostClient } from "./editorHostClient";
 import {
@@ -388,7 +390,12 @@ const builtinCategoryAccents: CategoryAccentMap = {
   macros: "var(--text)"
 };
 
-export function App(): JSX.Element {
+export interface AppProps {
+  externalDockPanels?: boolean;
+}
+
+export function App(props: AppProps = {}): JSX.Element {
+  const externalDockPanels = props.externalDockPanels === true;
   const hostApi = getEditorHostApi();
   const hostClient = useMemo(() => createEditorHostClient(hostApi), [hostApi]);
   const shellRef = useRef<HTMLDivElement>(null);
@@ -448,8 +455,8 @@ export function App(): JSX.Element {
   const [toolbarOverflowOpen, setToolbarOverflowOpen] = useState(false);
   const [editorSettingsOpen, setEditorSettingsOpen] = useState(false);
   const [templateRegistryOpen, setTemplateRegistryOpen] = useState(false);
-  const [leftPanelOpen, setLeftPanelOpen] = useState(true);
-  const [rightPanelOpen, setRightPanelOpen] = useState(true);
+  const [leftPanelOpen, setLeftPanelOpen] = useState(!externalDockPanels);
+  const [rightPanelOpen, setRightPanelOpen] = useState(!externalDockPanels);
   const [bottomPanelOpen, setBottomPanelOpen] = useState(true);
   const [panelSizes, setPanelSizes] = useState<PanelSizes>({ left: 260, right: 320, bottom: 210 });
   const [panelResize, setPanelResize] = useState<PanelResizeState | undefined>();
@@ -460,7 +467,14 @@ export function App(): JSX.Element {
   const gridVisible = editorPrefs.gridVisible;
   const snapToGrid = editorPrefs.snapToGrid;
   const actionBarPlacement = editorPrefs.actionBarPlacement;
+  const toolbarAlignment = editorPrefs.toolbarAlignment;
   const t = useMemo(() => createTranslator(editorPrefs.language), [editorPrefs.language]);
+  useEffect(() => {
+    if (externalDockPanels) {
+      setLeftPanelOpen(false);
+      setRightPanelOpen(false);
+    }
+  }, [externalDockPanels]);
   const startPanelResize = useCallback((kind: PanelResizeState["kind"], event: React.PointerEvent<HTMLDivElement>) => {
     const rect = shellRef.current?.getBoundingClientRect();
     if (!rect) {
@@ -557,6 +571,7 @@ export function App(): JSX.Element {
       storedPrefs.gridVisible === editorPrefs.gridVisible &&
       storedPrefs.snapToGrid === editorPrefs.snapToGrid &&
       storedPrefs.actionBarPlacement === editorPrefs.actionBarPlacement &&
+      storedPrefs.toolbarAlignment === editorPrefs.toolbarAlignment &&
       storedPrefs.nodeLabelMode === editorPrefs.nodeLabelMode &&
       storedPrefs.language === editorPrefs.language &&
       storedPrefs.theme === editorPrefs.theme &&
@@ -590,6 +605,12 @@ export function App(): JSX.Element {
     () => mergeTemplatesById([...templates, ...(graph?.localTemplates ?? [])]),
     [graph?.localTemplates, templates]
   );
+  const openReferencedGraph = useCallback((template: BlueprintNodeTemplate | undefined) => {
+    const graphPath = referencedGraphPathForTemplate(template, solutionOutline, solutionGraphIndex);
+    if (graphPath) {
+      hostClient.requestOpenGraph(graphPath);
+    }
+  }, [hostClient, solutionGraphIndex, solutionOutline]);
   const selectedNodeId = useMemo(() => [...selectedNodeIds][0], [selectedNodeIds]);
   const selectedNode = useMemo(() => graph?.nodes.find((node) => node.id === selectedNodeId), [graph, selectedNodeId]);
   const selectedCommentId = useMemo(() => [...selectedCommentIds][0], [selectedCommentIds]);
@@ -827,6 +848,11 @@ export function App(): JSX.Element {
         setRuntimeNodeStatus((current) => applyRuntimeTraceStatus(graphRef.current?.id, current, message.trace));
       } else if (message.type === "focusNode") {
         focusNodeById(message.nodeId);
+      } else if (message.type === "runCommand") {
+        const command = editorCommandsRef.current.find((candidate) => candidate.id === message.commandId);
+        if (command && !command.disabled) {
+          command.run();
+        }
       }
     };
 
@@ -2136,8 +2162,6 @@ export function App(): JSX.Element {
     focusNodeById(nodeId);
   };
 
-  const selectedBreakpoint = selectedNodeId ? breakpoints.find((breakpoint) => breakpoint.nodeId === selectedNodeId) : undefined;
-
   const selectRuntimeHistory = (entry: RuntimeHistoryEntry) => {
     setRuntimeOutput(entry);
     setActiveRuntimeTraceIndex(entry.traces.length ? 0 : undefined);
@@ -2258,16 +2282,37 @@ export function App(): JSX.Element {
   );
   const selectionToolboxPosition = selectionBounds
     ? (() => {
+        const canvasRect = canvasRef.current?.getBoundingClientRect();
+        const canvasLeft = canvasRect?.left ?? 0;
+        const canvasTop = canvasRect?.top ?? 0;
+        const canvasWidth = canvasRect?.width ?? canvasSize.width;
+        const canvasHeight = canvasRect?.height ?? canvasSize.height;
+        const viewportWidth = typeof window === "undefined" ? canvasLeft + canvasWidth : window.innerWidth;
+        const viewportHeight = typeof window === "undefined" ? canvasTop + canvasHeight : window.innerHeight;
         const selectionTop = selectionBounds.y * viewport.zoom + viewport.y;
         const selectionHeight = selectionBounds.height * viewport.zoom;
         const preferredY = selectionTop - 48;
         const fallbackBelowY = selectionTop + selectionHeight + 10;
+        const toolboxWidth = 350;
+        const toolboxHeight = 44;
+        const actionBarRect = typeof document === "undefined" ? undefined : document.querySelector(".run-actionbar")?.getBoundingClientRect();
+        const minimapRect = typeof document === "undefined" ? undefined : document.querySelector(".minimap")?.getBoundingClientRect();
+        const actionBarAvoidanceMaxY = actionBarPlacement === "bottom" && actionBarRect
+          ? actionBarRect.top - 8 - toolboxHeight
+          : Number.POSITIVE_INFINITY;
+        const minimapAvoidanceMaxX = minimapVisible && minimapRect ? minimapRect.left - 8 - toolboxWidth : Number.POSITIVE_INFINITY;
+        const maxToolboxX = Math.min(viewportWidth - toolboxWidth, canvasLeft + canvasWidth - toolboxWidth, minimapAvoidanceMaxX);
+        const maxToolboxY = Math.min(viewportHeight - toolboxHeight, canvasTop + canvasHeight - selectionToolboxBottomReserve, actionBarAvoidanceMaxY);
         return {
-          x: clamp(selectionBounds.x * viewport.zoom + viewport.x + selectionBounds.width * viewport.zoom / 2 - 168, 12, Math.max(12, canvasSize.width - 348)),
+          x: clamp(
+            canvasLeft + selectionBounds.x * viewport.zoom + viewport.x + selectionBounds.width * viewport.zoom / 2 - toolboxWidth / 2,
+            Math.max(12, canvasLeft + 12),
+            Math.max(Math.max(12, canvasLeft + 12), maxToolboxX)
+          ),
           y: clamp(
-            preferredY < selectionToolboxTopLimit ? fallbackBelowY : preferredY,
-            selectionToolboxTopLimit,
-            Math.max(selectionToolboxTopLimit, canvasSize.height - selectionToolboxBottomReserve)
+            canvasTop + (preferredY < selectionToolboxTopLimit ? fallbackBelowY : preferredY),
+            Math.max(12, canvasTop + selectionToolboxTopLimit),
+            Math.max(Math.max(12, canvasTop + selectionToolboxTopLimit), maxToolboxY)
           )
         };
       })()
@@ -2395,25 +2440,21 @@ export function App(): JSX.Element {
   const shellClassName = [
     "shell",
     themeClassName(editorPrefs.theme),
+    externalDockPanels ? "external-dock-panels" : "",
     leftPanelOpen ? "" : "left-collapsed",
     rightPanelOpen ? "" : "right-collapsed",
     bottomPanelOpen ? "" : "bottom-collapsed"
   ].filter(Boolean).join(" ");
   const shellStyle = {
     ...themeStyle(editorPrefs.theme, editorPrefs.customTheme),
-    "--left-panel-width": leftPanelOpen ? `${panelSizes.left}px` : "48px",
-    "--right-panel-width": rightPanelOpen ? `${panelSizes.right}px` : "48px",
+    "--left-panel-width": externalDockPanels ? "0px" : leftPanelOpen ? `${panelSizes.left}px` : "48px",
+    "--right-panel-width": externalDockPanels ? "0px" : rightPanelOpen ? `${panelSizes.right}px` : "48px",
     "--bottom-panel-height": bottomPanelOpen ? `${panelSizes.bottom}px` : "34px",
-    "--left-splitter-width": leftPanelOpen ? "6px" : "0px",
-    "--right-splitter-width": rightPanelOpen ? "6px" : "0px",
+    "--left-splitter-width": externalDockPanels ? "0px" : leftPanelOpen ? "6px" : "0px",
+    "--right-splitter-width": externalDockPanels ? "0px" : rightPanelOpen ? "6px" : "0px",
     "--bottom-splitter-height": bottomPanelOpen ? "6px" : "0px"
   } as CSSProperties;
-  const outputStatus = (
-    <span className={errorCount ? "output-pill error" : warningCount ? "output-pill warning" : "output-pill ok"}>
-      {errorCount ? <XCircle size={14} /> : warningCount ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
-      {errorCount ? t("common.errors", { count: errorCount }) : warningCount ? t("common.warnings", { count: warningCount }) : t("toolbar.validateGraph")}
-    </span>
-  );
+  const outputStatus = <strong className="run-panel-title">{t("runPanel.logs")}</strong>;
   const outputSummary = (
     <DiagnosticStrip
       issues={issues}
@@ -2444,7 +2485,7 @@ export function App(): JSX.Element {
             <button key={issueKey(issue)} className={`run-log-issue ${issue.severity}`} onClick={() => focusIssue(issue)}>
               <strong>{issue.severity}</strong>
               <span>{issue.message}</span>
-              {diagnosticLocationText(issue) ? <small>{t("diagnostics.location")}</small> : null}
+              {diagnosticLocationText(issue) ? <small>{diagnosticLocationText(issue)}</small> : null}
             </button>
           ))}
         </div>
@@ -2454,6 +2495,8 @@ export function App(): JSX.Element {
     </>
   );
   const toolbarOverflowActions: ToolbarOverflowAction[] = [
+    { id: "compile", title: t("commands.runtime.compile"), section: t("toolbarOverflow.quick"), tier: "secondary", icon: <TerminalSquare size={14} />, run: requestCompile },
+    { id: "validate", title: t("commands.runtime.validate"), section: t("toolbarOverflow.quick"), tier: "secondary", icon: <CheckCircle2 size={14} />, run: () => hostClient.requestValidation(graph) },
     {
       id: "findNode",
       title: t("commands.graph.findNode"),
@@ -2465,6 +2508,16 @@ export function App(): JSX.Element {
         nodeFindInputRef.current?.select();
       }
     },
+    { id: "templateRegistry", title: t("toolbar.templateRegistry"), section: t("toolbarOverflow.quick"), tier: "secondary", icon: <PackageIcon size={14} />, run: () => {
+      setEditorSettingsOpen(false);
+      setToolbarOverflowOpen(false);
+      setTemplateRegistryOpen(true);
+      dispatchCanvasInteraction({ type: "openMenu", menu: "templateRegistry" });
+    } },
+    { id: "zoomOut", title: t("canvasCommands.zoomOut"), section: t("toolbarOverflow.quick"), tier: "secondary", icon: <ZoomOut size={14} />, run: () => zoomViewportAtCanvasCenter(viewport.zoom / 1.15), disabled: viewportLocked },
+    { id: "zoomIn", title: t("canvasCommands.zoomIn"), section: t("toolbarOverflow.quick"), tier: "secondary", icon: <ZoomIn size={14} />, run: () => zoomViewportAtCanvasCenter(viewport.zoom * 1.15), disabled: viewportLocked },
+    { id: "linkMode", title: t("canvasCommands.linkMode", { mode: t(`linkRenderMode.${linkRenderMode}`) }), section: t("toolbarOverflow.quick"), tier: "secondary", icon: <Route size={14} />, run: () => updateEditorPrefs({ linkRenderMode: nextLinkRenderMode(linkRenderMode) }) },
+    { id: "viewportLock", title: viewportLocked ? t("canvasCommands.unlockViewport") : t("canvasCommands.lockViewport"), section: t("toolbarOverflow.quick"), tier: "secondary", icon: viewportLocked ? <Lock size={14} /> : <Unlock size={14} />, run: () => setViewportLocked((current) => !current) },
     { id: "frameSelection", title: t("commands.graph.frameSelection"), section: t("toolbarOverflow.quick"), tier: "secondary", icon: <Focus size={14} />, run: frameSelection, disabled: !selectedNodeIds.size && !selectedLinkIds.size && !selectedCommentIds.size },
     { id: "duplicateSelection", title: t("commands.graph.duplicateSelection"), section: t("toolbarOverflow.quick"), tier: "secondary", icon: <Copy size={14} />, run: duplicateSelection, disabled: !selectedNodeIds.size },
     { id: "autoLayout", title: t("commands.graph.autoLayout"), section: t("toolbarOverflow.graphFlow"), tier: "secondary", icon: <Workflow size={14} />, run: autoLayout, disabled: !graph.nodes.length },
@@ -2486,6 +2539,7 @@ export function App(): JSX.Element {
 
   return (
     <div className={shellClassName} style={shellStyle} ref={shellRef}>
+      {externalDockPanels ? null : (
       <BlueprintSidebar
         open={leftPanelOpen}
         graph={graph}
@@ -2540,6 +2594,8 @@ export function App(): JSX.Element {
         onClearBreakpoint={clearBreakpoint}
         onClose={() => setLeftPanelOpen(false)}
       />
+      )}
+      {externalDockPanels ? null : (
       <div
         className="splitter vertical left"
         role="separator"
@@ -2549,16 +2605,10 @@ export function App(): JSX.Element {
         onPointerUp={stopPanelResize}
         onPointerCancel={stopPanelResize}
       />
+      )}
 
       <main className="editor">
-        <div className="topbar">
-          <div className="graph-title">
-            <GitBranch size={17} />
-            <div>
-              <strong>{graph.name}</strong>
-              <span>{graph.description}</span>
-            </div>
-          </div>
+        <div className={`topbar toolbar-align-${toolbarAlignment}`}>
           <div className="toolbar">
             <span className="toolbar-group">
               <button className="icon-button" title={t("toolbar.commandPalette")} onClick={() => setCommandPaletteOpen(true)}><Command size={16} /></button>
@@ -2568,12 +2618,6 @@ export function App(): JSX.Element {
                 setEditorSettingsOpen(!editorSettingsOpen);
                 dispatchCanvasInteraction(editorSettingsOpen ? { type: "cancel" } : { type: "openMenu", menu: "settings" });
               }}><Settings size={16} /></button>
-              <button className={templateRegistryOpen ? "icon-button active" : "icon-button"} title={t("toolbar.templateRegistry")} onClick={() => {
-                setEditorSettingsOpen(false);
-                setToolbarOverflowOpen(false);
-                setTemplateRegistryOpen(!templateRegistryOpen);
-                dispatchCanvasInteraction(templateRegistryOpen ? { type: "cancel" } : { type: "openMenu", menu: "templateRegistry" });
-              }}><PackageIcon size={16} /></button>
               <button className={toolbarOverflowOpen ? "icon-button active" : "icon-button"} title={t("toolbar.overflow")} onClick={() => {
                 setEditorSettingsOpen(false);
                 setTemplateRegistryOpen(false);
@@ -2583,25 +2627,9 @@ export function App(): JSX.Element {
             </span>
             <span className="toolbar-group toolbar-view-controls" aria-label={t("canvasCommands.label")}>
               <button className="icon-button" title={t("canvasCommands.fitGraph")} onClick={fitGraphToCanvas} disabled={viewportLocked}><Focus size={16} /></button>
-              <button className="icon-button" title={t("canvasCommands.zoomOut")} onClick={() => zoomViewportAtCanvasCenter(viewport.zoom / 1.15)} disabled={viewportLocked}><ZoomOut size={16} /></button>
               <button className="icon-button text-button" title={t("canvasCommands.resetZoom")} onClick={() => zoomViewportAtCanvasCenter(1)} disabled={viewportLocked}>{Math.round(viewport.zoom * 100)}%</button>
-              <button className="icon-button" title={t("canvasCommands.zoomIn")} onClick={() => zoomViewportAtCanvasCenter(viewport.zoom * 1.15)} disabled={viewportLocked}><ZoomIn size={16} /></button>
               <button className={minimapVisible ? "icon-button active" : "icon-button"} title={minimapVisible ? t("canvasCommands.hideMinimap") : t("canvasCommands.showMinimap")} onClick={() => updateEditorPrefs({ minimapVisible: !minimapVisible })}><MapIcon size={16} /></button>
               <button className={linksVisible ? "icon-button active" : "icon-button"} title={linksVisible ? t("canvasCommands.hideLinks") : t("canvasCommands.showLinks")} onClick={() => updateEditorPrefs({ linkRenderMode: linkRenderMode === "hidden" ? "spline" : "hidden" })}>{linksVisible ? <Eye size={16} /> : <EyeOff size={16} />}</button>
-              <button className="icon-button text-button" title={t("canvasCommands.linkMode", { mode: t(`linkRenderMode.${linkRenderMode}`) })} onClick={() => updateEditorPrefs({ linkRenderMode: nextLinkRenderMode(linkRenderMode) })}><Route size={14} /><span>{t(`linkRenderMode.${linkRenderMode}`)}</span></button>
-              <button className={viewportLocked ? "icon-button active warning" : "icon-button"} title={viewportLocked ? t("canvasCommands.unlockViewport") : t("canvasCommands.lockViewport")} onClick={() => setViewportLocked((current) => !current)}>{viewportLocked ? <Lock size={16} /> : <Unlock size={16} />}</button>
-            </span>
-            <span className="toolbar-group toolbar-secondary">
-              <button className="icon-button" title={t("commands.graph.findNode")} onClick={() => {
-                nodeFindInputRef.current?.focus();
-                nodeFindInputRef.current?.select();
-              }}><Search size={16} /></button>
-              <button className="icon-button" title={t("commands.graph.autoLayout")} onClick={autoLayout}><Workflow size={16} /></button>
-              <button className="icon-button" title={t("commands.graph.insertRoutingHub")} onClick={insertRoutingHub} disabled={!selectedLinkIds.size}><Route size={16} /></button>
-              <button className="icon-button" title={t("commands.graph.cleanupRoutingHubs")} onClick={cleanupSelectedRoutingHubs} disabled={!canCleanupRoutingHubs}><RouteOff size={16} /></button>
-              <button className="icon-button" title={t("commands.graph.breakSelectedLinks")} onClick={breakLinksForSelection} disabled={!selectedNodeLinkCount}><Unlink size={16} /></button>
-              <button className="icon-button" title={t("commands.graph.createCommentBox")} onClick={createCommentBox}><StickyNote size={16} /></button>
-              <button className="icon-button" title={t("commands.graph.addBookmark")} onClick={createBookmark}><BookmarkPlus size={16} /></button>
             </span>
             {editorSettingsOpen ? (
               <EditorSettingsPanel
@@ -2623,20 +2651,10 @@ export function App(): JSX.Element {
               dispatchCanvasInteraction({ type: "cancel" });
             }} /> : null}
             <span className="toolbar-group">
-              <button className="icon-button" title={t("toolbar.compileGraph")} onClick={requestCompile}><TerminalSquare size={16} /></button>
-              <button
-                className={selectedNodeId && breakpointNodeIds.has(selectedNodeId) ? "icon-button active" : "icon-button"}
-                title={selectedBreakpoint?.condition ? t("toolbar.toggleBreakpointCondition", { condition: selectedBreakpoint.condition }) : t("commands.runtime.toggleBreakpoint")}
-                onClick={toggleBreakpoint}
-                disabled={!selectedNodeId}
-              ><CircleDot size={16} /></button>
               <button className="icon-button" title={isRuntimeRunning ? t("toolbar.cancelRun") : t("toolbar.runGraph")} onClick={isRuntimeRunning ? requestCancelRun : requestRun}>{isRuntimeRunning ? <Square size={16} /> : <Play size={16} />}</button>
               <button className="icon-button" title={isRuntimeRunning ? t("toolbar.stepRuntime") : t("toolbar.stepRun")} onClick={isRuntimeRunning ? requestRuntimeStep : requestStepRun}><StepForward size={16} /></button>
               {isRuntimeRunning ? <button className="icon-button" title={t("toolbar.continueRuntime")} onClick={requestRuntimeContinue}><Play size={16} /></button> : null}
-              <button className="icon-button" title={t("toolbar.validateGraph")} onClick={() => hostClient.requestValidation(graph)}><CheckCircle2 size={16} /></button>
             </span>
-            <span className={errorCount ? "status error" : "status ok"}>{errorCount ? t("common.errors", { count: errorCount }) : t("common.valid")}</span>
-            <span className="zoom">{Math.round(viewport.zoom * 100)}%</span>
           </div>
         </div>
 
@@ -2718,11 +2736,13 @@ export function App(): JSX.Element {
                 }}
               />
             ))}
-            {visibleCanvasNodes.map((node) => (
+            {visibleCanvasNodes.map((node) => {
+              const template = getEffectiveTemplateForNode(graph, graphTemplates, node);
+              return (
               <BlueprintNode
                 key={node.id}
                 node={node}
-                template={getEffectiveTemplateForNode(graph, graphTemplates, node)}
+                template={template}
                 t={t}
                 locale={editorPrefs.language}
                 nodeLabelMode={editorPrefs.nodeLabelMode}
@@ -2757,6 +2777,7 @@ export function App(): JSX.Element {
                       .map((candidate) => ({ nodeId: candidate.id, offset: { x: point.x - candidate.position.x, y: point.y - candidate.position.y } }))
                   );
                 }}
+                onDoubleClick={() => openReferencedGraph(template)}
                 onPortDragStart={(port, event) => {
                   if (event.altKey) {
                     event.preventDefault();
@@ -2778,7 +2799,8 @@ export function App(): JSX.Element {
                 onPortContextMenu={(port, event) => openPortContextMenu(node.id, port.id, event)}
                 onPortDrop={(port) => connectDraggedPort({ nodeId: node.id, portId: port.id, direction: port.direction, flowKind: port.flowKind, type: port.type })}
               />
-            ))}
+              );
+            })}
             {marquee ? <MarqueeRect marquee={marquee} /> : null}
             </>
           )}
@@ -2938,6 +2960,7 @@ export function App(): JSX.Element {
         />
       </main>
 
+      {externalDockPanels ? null : (
       <div
         className="splitter vertical right"
         role="separator"
@@ -2947,7 +2970,9 @@ export function App(): JSX.Element {
         onPointerUp={stopPanelResize}
         onPointerCancel={stopPanelResize}
       />
+      )}
 
+      {externalDockPanels ? null : (
       <InspectorPanel open={rightPanelOpen} t={t} onOpen={() => setRightPanelOpen(true)} onClose={() => setRightPanelOpen(false)}>
         {selectedNode && selectedTemplate ? (
           <Inspector
@@ -2967,6 +2992,7 @@ export function App(): JSX.Element {
           <CommentInspector comment={selectedComment} t={t} onTitleChange={updateCommentTitle} onSizeChange={updateCommentSize} onColorChange={updateCommentColor} />
         ) : undefined}
       </InspectorPanel>
+      )}
 
       <div
         className="splitter horizontal bottom"
@@ -3065,6 +3091,7 @@ function BlueprintNode(props: {
   highlightedPortId?: string;
   runtimeStatus?: RuntimeTraceEvent["status"];
   onSelect(event: React.PointerEvent): void;
+  onDoubleClick(event: React.MouseEvent<HTMLDivElement>): void;
   onContextMenu(event: React.MouseEvent<HTMLDivElement>): void;
   portCompatibility(port: BlueprintPortDefinition): PortCompatibility | undefined;
   onNodeDragStart(event: React.PointerEvent): void;
@@ -3097,6 +3124,14 @@ function BlueprintNode(props: {
         title={`${templateText.name || node.templateId} · ${template?.creationPath ?? ""} · ${node.templateId}`.trim()}
         style={nodeStyle}
         onContextMenu={props.onContextMenu}
+        onDoubleClick={(event) => {
+          if ((event.target as HTMLElement).closest(".port")) {
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          props.onDoubleClick(event);
+        }}
         onPointerDown={(event) => {
           if ((event.target as HTMLElement).closest(".port")) {
             return;
@@ -3134,6 +3169,14 @@ function BlueprintNode(props: {
       data-node-id={node.id}
       style={nodeStyle}
       onContextMenu={props.onContextMenu}
+      onDoubleClick={(event) => {
+        if ((event.target as HTMLElement).closest(".port")) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        props.onDoubleClick(event);
+      }}
       onPointerDown={(event) => {
         if ((event.target as HTMLElement).closest(".port")) {
           return;
@@ -3668,6 +3711,22 @@ function EditorSettingsPanel(props: {
           >
             {props.t("settings.actionbarTop")}
           </button>
+        </div>
+      </div>
+      <div className="setting-row">
+        <span>{props.t("settings.toolbar")}</span>
+        <div className="setting-segmented" aria-label={props.t("settings.toolbarAlignment")}>
+          {toolbarAlignments.map((alignment) => (
+            <button
+              key={alignment}
+              type="button"
+              className={props.prefs.toolbarAlignment === alignment ? "active" : ""}
+              title={props.t(`settings.placeToolbar${toolbarAlignmentKeySuffix(alignment)}`)}
+              onClick={() => props.onChange({ toolbarAlignment: alignment })}
+            >
+              {props.t(`settings.toolbar${toolbarAlignmentKeySuffix(alignment)}`)}
+            </button>
+          ))}
         </div>
       </div>
       <div className="setting-row">
@@ -4639,21 +4698,11 @@ function DiagnosticStrip(props: {
   }
 
   return (
-    <div className="diagnostic-strip">
-      {props.issues.slice(0, 8).map((issue) => (
-        <button
-          key={issueKey(issue)}
-          className={props.focusedIssueKey === issueKey(issue) ? `diagnostic-chip ${issue.severity} active` : `diagnostic-chip ${issue.severity}`}
-          title={diagnosticTargetLabel(issue)}
-          onClick={() => props.onIssueFocus(issue)}
-        >
-          {issue.severity === "error" ? <XCircle size={13} /> : <AlertTriangle size={13} />}
-          <span>{issue.message}</span>
-          {diagnosticLocationText(issue) ? <small>{diagnosticLocationText(issue)}</small> : null}
-        </button>
-      ))}
-      {props.issues.length > 8 ? <span className="diagnostic-more">+{props.issues.length - 8}</span> : null}
-    </div>
+    <span className={props.issues.some((issue) => issue.severity === "error") ? "output-message runtime-error" : "output-message warning"}>
+      {props.issues.some((issue) => issue.severity === "error")
+        ? props.t("common.errors", { count: props.issues.filter((issue) => issue.severity === "error").length })
+        : props.t("common.warnings", { count: props.issues.length })}
+    </span>
   );
 }
 
@@ -5346,6 +5395,50 @@ function findInSolutionGraphIndex(
     .map(({ index: _index, ...entry }) => entry);
 }
 
+function referencedGraphPathForTemplate(
+  template: BlueprintNodeTemplate | undefined,
+  outline: BlueprintSolutionOutline | undefined,
+  index: BlueprintSolutionGraphSearchIndex | undefined
+): string | undefined {
+  if (!template || (template.bodyKind !== "blueprintGraph" && template.bodyKind !== "macroExpansion")) {
+    return undefined;
+  }
+  if (template.bodyRef.startsWith("embedded:")) {
+    return undefined;
+  }
+  const expectedKind = template.bodyKind === "macroExpansion" ? "macro" : "function";
+  const templateGraphId = template.id.replace(/^(graph|macro)\./, "");
+  const sourcePath = normalizeTemplatePath(template.bodyRef.split("#")[0] ?? "");
+  const indexedMatch = index?.graphs.find((candidate) =>
+    referencedGraphMatches(candidate.graphPath, candidate.graphId, candidate.graphKind, templateGraphId, sourcePath, expectedKind)
+  );
+  if (indexedMatch) {
+    return indexedMatch.graphPath;
+  }
+  return outline?.projects
+    .flatMap((project) => project.graphs)
+    .find((candidate) => referencedGraphMatches(candidate.path, candidate.id, candidate.kind, templateGraphId, sourcePath, expectedKind))
+    ?.path;
+}
+
+function referencedGraphMatches(
+  graphPath: string,
+  graphId: string,
+  graphKind: string,
+  templateGraphId: string,
+  sourcePath: string,
+  expectedKind: "function" | "macro"
+): boolean {
+  if (graphKind !== expectedKind) {
+    return false;
+  }
+  if (graphId === templateGraphId) {
+    return true;
+  }
+  const normalizedPath = normalizeTemplatePath(graphPath);
+  return Boolean(sourcePath && (normalizedPath === sourcePath || normalizedPath.endsWith(`/${sourcePath}`)));
+}
+
 function nodeFindSearchValues(graph: BlueprintGraph, node: BlueprintNodeInstance, template: BlueprintNodeTemplate | undefined, t: Translator, locale: Locale): Array<{ label: string; value?: string }> {
   const blackboardReference = blackboardReferenceForNode(node, template);
   const templateText = localizedTemplateText(template, locale);
@@ -5498,11 +5591,6 @@ function issueKey(issue: ValidationIssue): string {
     issue.linkId ? `link:${issue.linkId}` : "",
     issue.portId ? `port:${issue.portId}` : ""
   ].join("|");
-}
-
-function diagnosticTargetLabel(issue: ValidationIssue): string {
-  const target = diagnosticLocationText(issue);
-  return target ? `${issue.message} (${target})` : issue.message;
 }
 
 function diagnosticLocationText(issue: ValidationIssue): string {
@@ -6849,6 +6937,17 @@ function portPoint(graph: BlueprintGraph, templates: BlueprintNodeTemplate[], no
 function nextLinkRenderMode(current: LinkRenderMode): LinkRenderMode {
   const index = linkRenderModes.indexOf(current);
   return linkRenderModes[(index + 1) % linkRenderModes.length] ?? "spline";
+}
+
+function toolbarAlignmentKeySuffix(alignment: ToolbarAlignment): "Left" | "Center" | "Right" {
+  switch (alignment) {
+    case "left":
+      return "Left";
+    case "center":
+      return "Center";
+    case "right":
+      return "Right";
+  }
 }
 
 function linkPath(start: Point, end: Point, mode: LinkRenderMode): string {

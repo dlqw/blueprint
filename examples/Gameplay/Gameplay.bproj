@@ -5,8 +5,7 @@
   "graphs": [
     "graphs/main.bpgraph",
     "graphs/announce.bpgraph",
-    "graphs/format-score.bpgraph",
-    "graphs/trace-macro.bpgraph"
+    "graphs/format-score.bpgraph"
   ],
   "templateSources": [
     "src/**/*.ts"

@@ -29,13 +29,14 @@ export interface BlueprintGraphSummary {
 }
 
 export interface BlueprintDesktopHost {
+  getLaunchContext(): Promise<BlueprintLaunchContext>;
   readBlueprintFile(path: string): Promise<BlueprintFile>;
   writeBlueprintFile(path: string, value: BlueprintFile): Promise<void>;
   readBlueprintSolution(path: string): Promise<BlueprintSolutionSummary>;
   loadProjectTemplates(projectPath: string): Promise<BlueprintDesktopTemplatesResult>;
   compileGraph(graph: BlueprintGraph, graphPath?: string): Promise<BlueprintDesktopCompileResult>;
   runGraph(graph: BlueprintGraph, graphPath?: string): Promise<BlueprintDesktopRunResult>;
-  createSolution(path: string, solutionName: string, projectName: string): Promise<BlueprintSolutionSummary>;
+  createSolution(path: string, solutionName: string, projectName: string, templateId: BlueprintSolutionTemplateId): Promise<BlueprintSolutionSummary>;
   createProject(solutionPath: string, projectName: string): Promise<BlueprintSolutionSummary>;
   renameProject(solutionPath: string, projectPath: string, projectName: string): Promise<BlueprintSolutionSummary>;
   deleteProject(solutionPath: string, projectPath: string): Promise<BlueprintSolutionSummary>;
@@ -43,6 +44,13 @@ export interface BlueprintDesktopHost {
   renameGraph(projectPath: string, graphPath: string, graphName: string): Promise<BlueprintGraphSummary>;
   deleteGraph(projectPath: string, graphPath: string): Promise<void>;
 }
+
+export type BlueprintLaunchContext =
+  | { kind: "hub" }
+  | { kind: "folder"; folderPath: string; error?: string }
+  | { kind: "solution"; solution: BlueprintSolutionSummary };
+
+export type BlueprintSolutionTemplateId = "empty" | "hello-world";
 
 export interface BlueprintDesktopCompileResult {
   ok: boolean;
@@ -68,6 +76,9 @@ export interface BlueprintDesktopRunResult {
 }
 
 export const tauriBlueprintHost: BlueprintDesktopHost = {
+  getLaunchContext() {
+    return invoke<BlueprintLaunchContext>("blueprint_launch_context");
+  },
   readBlueprintFile(path) {
     return invoke<BlueprintFile>("blueprint_read_file", { path });
   },
@@ -86,8 +97,8 @@ export const tauriBlueprintHost: BlueprintDesktopHost = {
   runGraph(graph, graphPath) {
     return invoke<BlueprintDesktopRunResult>("blueprint_run_graph", { graph, graphPath });
   },
-  createSolution(path, solutionName, projectName) {
-    return invoke<BlueprintSolutionSummary>("blueprint_create_solution", { path, solutionName, projectName });
+  createSolution(path, solutionName, projectName, templateId) {
+    return invoke<BlueprintSolutionSummary>("blueprint_create_solution", { path, solutionName, projectName, templateId });
   },
   createProject(solutionPath, projectName) {
     return invoke<BlueprintSolutionSummary>("blueprint_create_project", { solutionPath, projectName });

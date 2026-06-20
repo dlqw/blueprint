@@ -348,7 +348,8 @@ export type HostToEditorMessage =
   | { type: "runtimeQueueStatus"; status: RuntimeQueueStatus }
   | { type: "runtimeTrace"; trace: RuntimeTraceEvent }
   | { type: "runtimeResult"; ok: boolean; message: string; stdout: string; stderr: string; durationMs: number; traces: RuntimeTraceEvent[]; issues?: ValidationIssue[] }
-  | { type: "focusNode"; nodeId: string };
+  | { type: "focusNode"; nodeId: string }
+  | { type: "runCommand"; commandId: string };
 
 export function createPort(
   id: string,
