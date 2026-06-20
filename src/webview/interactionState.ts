@@ -1,6 +1,6 @@
 import type { Point } from "../shared/blueprint";
 
-export type InteractionMenuKind = "nodeCreation" | "wire" | "node" | "comment" | "port" | "toolbar" | "settings" | "templateRegistry";
+export type InteractionMenuKind = "nodeCreation" | "wire" | "node" | "comment" | "port" | "toolbar" | "settings" | "templateRegistry" | "nodeFind";
 
 export type CanvasInteraction =
   | { kind: "idle" }

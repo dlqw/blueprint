@@ -5,6 +5,20 @@ export type LinkRenderMode = "spline" | "straight" | "orthogonal" | "hidden";
 export type ActionBarPlacement = "bottom" | "top";
 export type ToolbarAlignment = "left" | "center" | "right";
 export type NodeLabelMode = "localized" | "source" | "both";
+export type MainToolbarActionId =
+  | "commandPalette"
+  | "compile"
+  | "validate"
+  | "findNode"
+  | "fitGraph"
+  | "resetZoom"
+  | "run"
+  | "stepRun"
+  | "minimap"
+  | "links"
+  | "templateRegistry"
+  | "prefsPanel"
+  | "overflow";
 
 export interface GraphEditorPrefs {
   minimapVisible: boolean;
@@ -18,12 +32,41 @@ export interface GraphEditorPrefs {
   theme: ThemeId;
   customTheme?: CustomThemeConfig;
   shortcuts: Record<string, string>;
+  mainToolbarActions: MainToolbarActionId[];
 }
 
 export const linkRenderModes: LinkRenderMode[] = ["spline", "straight", "orthogonal", "hidden"];
 export const actionBarPlacements: ActionBarPlacement[] = ["bottom", "top"];
 export const toolbarAlignments: ToolbarAlignment[] = ["left", "center", "right"];
 export const nodeLabelModes: NodeLabelMode[] = ["localized", "source", "both"];
+export const mainToolbarActionIds: MainToolbarActionId[] = [
+  "commandPalette",
+  "compile",
+  "validate",
+  "findNode",
+  "fitGraph",
+  "resetZoom",
+  "run",
+  "stepRun",
+  "minimap",
+  "links",
+  "templateRegistry",
+  "prefsPanel",
+  "overflow"
+];
+export const defaultMainToolbarActions: MainToolbarActionId[] = [
+  "commandPalette",
+  "compile",
+  "validate",
+  "fitGraph",
+  "resetZoom",
+  "run",
+  "stepRun",
+  "minimap",
+  "links",
+  "prefsPanel",
+  "overflow"
+];
 
 export const defaultGraphEditorPrefs: GraphEditorPrefs = {
   minimapVisible: true,
@@ -31,11 +74,12 @@ export const defaultGraphEditorPrefs: GraphEditorPrefs = {
   gridVisible: true,
   snapToGrid: false,
   actionBarPlacement: "bottom",
-  toolbarAlignment: "right",
+  toolbarAlignment: "center",
   nodeLabelMode: "localized",
   language: defaultLocale,
   theme: defaultThemeId,
-  shortcuts: {}
+  shortcuts: {},
+  mainToolbarActions: defaultMainToolbarActions
 };
 
 export function readGraphEditorPrefs(state: unknown): GraphEditorPrefs {
@@ -52,7 +96,8 @@ export function readGraphEditorPrefs(state: unknown): GraphEditorPrefs {
     language: normalizeLocale(editorPrefs.language),
     theme: normalizeThemeId(editorPrefs.theme),
     ...(customTheme ? { customTheme } : {}),
-    shortcuts: readShortcutPrefs(editorPrefs.shortcuts)
+    shortcuts: readShortcutPrefs(editorPrefs.shortcuts),
+    mainToolbarActions: normalizeMainToolbarActions(editorPrefs.mainToolbarActions)
   };
 }
 
@@ -70,7 +115,8 @@ export function mergeGraphEditorPrefsState(state: unknown, prefs: GraphEditorPre
     nodeLabelMode: prefs.nodeLabelMode,
     language: prefs.language,
     theme: prefs.theme,
-    shortcuts: prefs.shortcuts
+    shortcuts: prefs.shortcuts,
+    mainToolbarActions: prefs.mainToolbarActions
   };
   if (prefs.customTheme) {
     Object.assign(nextEditorPrefs, { customTheme: prefs.customTheme });
@@ -130,4 +176,17 @@ function readShortcutPrefs(value: unknown): Record<string, string> {
       .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim().length > 0)
       .map(([commandId, shortcut]) => [commandId, shortcut.trim()])
   );
+}
+
+function normalizeMainToolbarActions(value: unknown): MainToolbarActionId[] {
+  if (!Array.isArray(value)) {
+    return defaultGraphEditorPrefs.mainToolbarActions;
+  }
+  const seen = new Set<MainToolbarActionId>();
+  for (const item of value) {
+    if (typeof item === "string" && mainToolbarActionIds.includes(item as MainToolbarActionId)) {
+      seen.add(item as MainToolbarActionId);
+    }
+  }
+  return seen.size ? mainToolbarActionIds.filter((id) => seen.has(id)) : defaultGraphEditorPrefs.mainToolbarActions;
 }

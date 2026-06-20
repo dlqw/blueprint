@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultGraphEditorPrefs, mergeGraphEditorPrefsState, readGraphEditorPrefs, readGraphEditorPrefsFromText, serializeGraphEditorPrefs } from "./editorPrefs";
+import { defaultGraphEditorPrefs, defaultMainToolbarActions, mergeGraphEditorPrefsState, readGraphEditorPrefs, readGraphEditorPrefsFromText, serializeGraphEditorPrefs } from "./editorPrefs";
 
 describe("editorPrefs", () => {
   it("normalizes unknown or invalid editor preference state", () => {
@@ -44,6 +44,7 @@ describe("editorPrefs", () => {
       nodeLabelMode: "both",
       language: "en-US",
       theme: "graphite",
+      mainToolbarActions: defaultMainToolbarActions,
       shortcuts: {
         "graph.duplicate": "Ctrl+Alt+D"
       }
@@ -60,6 +61,7 @@ describe("editorPrefs", () => {
         nodeLabelMode: "both",
         language: "en-US",
         theme: "graphite",
+        mainToolbarActions: defaultMainToolbarActions,
         shortcuts: {
           "graph.duplicate": "Ctrl+Alt+D"
         }
@@ -128,6 +130,7 @@ describe("editorPrefs", () => {
       nodeLabelMode: "source" as const,
       language: "en-US" as const,
       theme: "high-contrast" as const,
+      mainToolbarActions: defaultMainToolbarActions,
       shortcuts: {
         "graph.duplicate": "Ctrl+Alt+D"
       },

@@ -21,11 +21,16 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 async function clickToolbarOverflowAction(title: string | RegExp): Promise<void> {
   fireEvent.click(screen.getByTitle(/^(工具栏更多|Toolbar overflow)$/));
   fireEvent.click(await screen.findByTitle(title));
+}
+
+function findNodeDialogInput(): HTMLInputElement {
+  return within(screen.getByRole("dialog", { name: /^(查找节点|Find Node)$/ })).getByPlaceholderText(/^(查找节点|Find nodes)$/) as HTMLInputElement;
 }
 
 describe("Blueprint webview App", () => {
@@ -238,7 +243,8 @@ describe("Blueprint webview App", () => {
     expect(within(overflow).getByText("Layout")).toBeInTheDocument();
 
     fireEvent.click(within(overflow).getByTitle("Find Node"));
-    expect(screen.getByPlaceholderText("Find nodes")).toHaveFocus();
+    await waitFor(() => expect(findNodeDialogInput()).toHaveFocus());
+    fireEvent.keyDown(findNodeDialogInput(), { key: "Escape" });
 
     fireEvent.click(screen.getByTitle("Toolbar overflow"));
     fireEvent.click(within(await screen.findByRole("menu")).getByTitle(/auto layout/i));
@@ -427,6 +433,11 @@ describe("Blueprint webview App", () => {
     fireEvent.click(screen.getByTitle("Align top toolbar center"));
     fireEvent.click(screen.getByTitle("Set link mode: straight"));
     fireEvent.click(screen.getByRole("button", { name: "Graphite" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Main toolbar" }));
+    const mainToolbarSettings = screen.getByLabelText("Main toolbar buttons");
+    const compileToolbarSetting = mainToolbarSettings.querySelector('[data-toolbar-action="compile"]');
+    expect(compileToolbarSetting).toBeTruthy();
+    fireEvent.click(within(compileToolbarSetting as HTMLElement).getByRole("checkbox"));
 
     await waitFor(() => {
       expect(container.querySelector(".grid")).not.toBeInTheDocument();
@@ -440,10 +451,12 @@ describe("Blueprint webview App", () => {
           actionBarPlacement: "top",
           toolbarAlignment: "center",
           linkRenderMode: "straight",
-          theme: "graphite"
+          theme: "graphite",
+          mainToolbarActions: expect.not.arrayContaining(["compile"])
         })
       );
     });
+    expect(screen.queryByTitle("Compile Graph")).not.toBeInTheDocument();
     expect(postedMessages.filter((message) => message.type === "graphChanged")).toHaveLength(graphChangeCount);
 
     const canvas = container.querySelector(".canvas");
@@ -469,11 +482,12 @@ describe("Blueprint webview App", () => {
           gridVisible: true,
           snapToGrid: false,
           actionBarPlacement: "bottom",
-          toolbarAlignment: "right",
+          toolbarAlignment: "center",
           linkRenderMode: "spline",
           minimapVisible: true,
           language: "zh-CN",
-          theme: "comfy-dark"
+          theme: "comfy-dark",
+          mainToolbarActions: expect.arrayContaining(["compile"])
         })
       );
     });
@@ -497,10 +511,11 @@ describe("Blueprint webview App", () => {
         gridVisible: true,
         minimapVisible: true,
         actionBarPlacement: "bottom",
-        toolbarAlignment: "right",
+        toolbarAlignment: "center",
         linkRenderMode: "spline",
         snapToGrid: false,
-        theme: "comfy-dark"
+        theme: "comfy-dark",
+        mainToolbarActions: expect.arrayContaining(["run", "stepRun", "overflow"])
       })
     });
     expect(await screen.findByText("Settings exported")).toBeInTheDocument();
@@ -612,6 +627,7 @@ describe("Blueprint webview App", () => {
 
     const graphChangeCount = postedMessages.filter((message) => message.type === "graphChanged").length;
     fireEvent.click(screen.getByTitle("Editor settings"));
+    fireEvent.click(screen.getByRole("tab", { name: "Shortcuts" }));
 
     const duplicateShortcut = screen.getByLabelText("Shortcut for Duplicate Selection");
     fireEvent.change(duplicateShortcut, { target: { value: "Ctrl+K" } });
@@ -667,6 +683,7 @@ describe("Blueprint webview App", () => {
       expect(commented?.type).toBe("graphChanged");
       expect(commented?.graph.comments?.[0].nodeIds).toEqual(["entry"]);
     });
+    expect(screen.getAllByLabelText("Custom comment color").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByTitle("Set selected comment color #48b9c7"));
     await waitFor(() => {
@@ -857,8 +874,8 @@ describe("Blueprint webview App", () => {
     } as DOMRect);
 
     fireEvent.keyDown(window, { key: "f", ctrlKey: true });
-    const findInput = await screen.findByPlaceholderText("Find nodes");
-    expect(document.activeElement).toBe(findInput);
+    const findInput = findNodeDialogInput();
+    await waitFor(() => expect(findInput).toHaveFocus());
     fireEvent.change(findInput, { target: { value: "log" } });
     fireEvent.keyDown(findInput, { key: "Enter" });
 
@@ -909,10 +926,10 @@ describe("Blueprint webview App", () => {
     } as DOMRect);
 
     fireEvent.keyDown(window, { key: "f", ctrlKey: true });
-    const findInput = await screen.findByPlaceholderText("Find nodes");
+    const findInput = findNodeDialogInput();
     fireEvent.change(findInput, { target: { value: "mathNodes" } });
 
-    expect(screen.getByText("Source: examples/Gameplay/src/mathNodes.ts#GameplayMathNodes.double")).toBeInTheDocument();
+    expect(within(screen.getByRole("dialog", { name: /^(查找节点|Find Node)$/ })).getByText("Source: examples/Gameplay/src/mathNodes.ts#GameplayMathNodes.double")).toBeInTheDocument();
     fireEvent.keyDown(findInput, { key: "Enter" });
 
     await waitFor(() => {
@@ -1486,16 +1503,37 @@ describe("Blueprint webview App", () => {
       }
     }));
 
-    fireEvent.click(await screen.findByRole("button", { name: /warning Message input is missing/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^warning Message input is missing/ }));
     await waitFor(() => {
       expect(container.querySelector(".node.selected .node-header strong")?.textContent).toBe("Log");
       expect(container.querySelector('button[title^="Message: string"]')?.classList.contains("issue-focus")).toBe(true);
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: /error Control link is broken/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^error Control link is broken/ }));
     await waitFor(() => {
       expect(container.querySelector('path[data-link-id="link-entry-log"]')?.classList.contains("selected")).toBe(true);
     });
+  });
+
+  it("copies validation log issue information", async () => {
+    renderAppWithGraph(sampleGraph());
+    await screen.findAllByText("Function Entry");
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        type: "validationResult",
+        issues: [
+          { severity: "warning", message: "Message input is missing.", nodeId: "log1", portId: "message" }
+        ]
+      }
+    }));
+
+    fireEvent.click(await screen.findByTitle("Copy log information"));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("warning\nMessage input is missing.\nnode log1 · port message"));
+    expect(screen.getByTitle("Log information copied")).toBeInTheDocument();
   });
 
   it("renders compile diagnostics as focusable issues", async () => {
@@ -1839,7 +1877,7 @@ describe("Blueprint webview App", () => {
     }));
 
     expect(await screen.findByText("Queued")).toBeInTheDocument();
-    expect(screen.getByTitle("Hide run history (2 queued)")).toHaveTextContent("History");
+    expect(screen.getByTitle("Hide run history (2 queued)")).toBeInTheDocument();
     expect(screen.getByTitle(/run graph/i)).toBeInTheDocument();
   });
 
@@ -1848,7 +1886,7 @@ describe("Blueprint webview App", () => {
     const { container } = renderAppWithGraph(graph);
     await screen.findAllByText("Function Entry");
 
-    const runtimeToolbar = container.querySelectorAll(".topbar .toolbar .toolbar-group")[2] as HTMLElement;
+    const runtimeToolbar = container.querySelector(".topbar .toolbar .toolbar-run-controls") as HTMLElement;
     fireEvent.click(within(runtimeToolbar).getByTitle("Step run"));
     const runRequest = postedMessages.filter((message) => message.type === "requestRun").at(-1);
     expect(runRequest?.type).toBe("requestRun");
@@ -1988,6 +2026,33 @@ describe("Blueprint webview App", () => {
     expect(details?.textContent).toContain("Data In");
     expect(details?.textContent).toContain("Message");
     expect(details?.textContent).toContain("string");
+  });
+
+  it("resizes the node creation panel by dragging its corner handle", async () => {
+    vi.stubGlobal("innerWidth", 1200);
+    vi.stubGlobal("innerHeight", 900);
+    const { container } = renderAppWithGraph(sampleGraph());
+    await screen.findAllByText("Function Entry");
+
+    const canvas = container.querySelector(".canvas");
+    expect(canvas).toBeTruthy();
+    fireEvent.contextMenu(canvas as Element, { clientX: 320, clientY: 220 });
+
+    await screen.findByPlaceholderText("Search node templates");
+    const panel = container.querySelector(".node-panel") as HTMLElement | null;
+    const resizeHandle = screen.getByTitle("Resize node template panel");
+    expect(panel).toBeTruthy();
+    expect(panel?.style.width).toBe("680px");
+    expect(panel?.style.height).toBe("316px");
+
+    firePointer(resizeHandle, "pointerdown", { clientX: 996, clientY: 516, button: 0, pointerId: 9 });
+    firePointer(panel as Element, "pointermove", { clientX: 1096, clientY: 596, pointerId: 9 });
+    firePointer(panel as Element, "pointerup", { clientX: 1096, clientY: 596, pointerId: 9 });
+
+    await waitFor(() => {
+      expect(panel?.style.width).toBe("780px");
+      expect(panel?.style.height).toBe("396px");
+    });
   });
 
   it("supports keyboard node creation and records recent templates", async () => {
@@ -2764,6 +2829,12 @@ describe("Blueprint webview App", () => {
     await waitFor(() => {
       const recolored = postedMessages.filter((message) => message.type === "graphChanged").at(-1);
       expect(recolored?.graph.comments?.[0].color).toBe("#48b9c7");
+    });
+    fireEvent.change(screen.getAllByLabelText("Custom comment color").at(-1)!, { target: { value: "#e05f50" } });
+    await waitFor(() => {
+      const customColored = postedMessages.filter((message) => message.type === "graphChanged").at(-1);
+      expect(customColored?.graph.comments?.[0].color).toBe("#e05f50");
+      expect((container.querySelector(".comment-box") as HTMLElement | null)?.style.getPropertyValue("--comment-color")).toBe("#e05f50");
     });
 
     const comment = container.querySelector(".comment-box");

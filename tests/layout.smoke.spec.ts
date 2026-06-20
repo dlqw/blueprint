@@ -21,6 +21,7 @@ test.describe("desktop layout smoke", () => {
     await expect(page.locator(".topbar .lucide-circle-dot")).toHaveCount(0);
     const topbarBox = await visibleBox(page, ".topbar");
     expect(topbarBox.height, "topbar compact height").toBeLessThanOrEqual(44);
+    await assertToolbarFilledAndRunCentered(page);
     await toolbarOverflowButton(page).click();
     await expect(page.locator(".toolbar-overflow-menu")).toBeVisible();
     await assertInsideViewport(page, ".toolbar-overflow-menu");
@@ -31,6 +32,7 @@ test.describe("desktop layout smoke", () => {
     await page.setViewportSize({ width: 960, height: 720 });
     await openEditor(page);
     await assertLayout(page);
+    await assertToolbarFilledAndRunCentered(page);
     await toolbarOverflowButton(page).click();
     await expect(page.locator(".toolbar-overflow-menu")).toBeVisible();
     await assertInsideViewport(page, ".toolbar-overflow-menu");
@@ -62,6 +64,13 @@ test.describe("desktop layout smoke", () => {
       await assertSelectionToolboxLayout(page);
     }
 
+    await page.locator('[data-node-id="center-log"]').click();
+    await page.getByTitle(/^(从选择创建注释|Create comment from selection)$/).click();
+    await expect(page.locator(".comment-box")).toBeVisible();
+    await page.getByTitle(/#e05f50$/).first().click();
+    await assertCommentBoxUsesColor(page, "#e05f50");
+    await expect(page.getByLabel(/^(自定义注释颜色|Custom comment color)$/).first()).toBeVisible();
+
     await page.screenshot({ path: test.info().outputPath("layout-selection-toolbox.png"), fullPage: true });
   });
 
@@ -91,7 +100,30 @@ test.describe("desktop layout smoke", () => {
     await expect(page.locator(".node-panel.pin-aware")).toBeVisible();
     await expect(page.locator(".pin-creation-hint")).toContainText("来自 output control pin");
     await assertInsideViewport(page, ".node-panel");
+    const panelBefore = await visibleBox(page, ".node-panel");
+    const handle = page.locator(".node-panel-resize");
+    await expect(handle).toBeVisible();
+    const handleBox = await visibleBox(page, ".node-panel-resize");
+    await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(panelBefore.x + panelBefore.width + 96, panelBefore.y + panelBefore.height + 72, { steps: 8 });
+    await page.mouse.up();
+    const panelAfter = await visibleBox(page, ".node-panel");
+    expect(panelAfter.width, "resized node panel width").toBeGreaterThan(panelBefore.width + 60);
+    expect(panelAfter.height, "resized node panel height").toBeGreaterThan(panelBefore.height + 40);
+    await assertInsideViewport(page, ".node-panel");
     await page.screenshot({ path: test.info().outputPath("layout-pin-hit-areas.png"), fullPage: true });
+  });
+
+  test("routing hub background contains compact port pins", async ({ page }) => {
+    await page.setViewportSize({ width: 960, height: 720 });
+    await page.addInitScript((graph) => {
+      window.localStorage.setItem("blueprint.desktop.activeGraph", JSON.stringify(graph));
+    }, routingHubLayoutGraph());
+    await openEditor(page);
+    await assertLayout(page);
+    await assertRoutingHubPortsInsideBody(page, '[data-node-id="data-hub"]');
+    await page.screenshot({ path: test.info().outputPath("layout-routing-hub-ports.png"), fullPage: true });
   });
 
   test("desktop docks remove blueprints and search and stay compact", async ({ page }) => {
@@ -264,6 +296,7 @@ test.describe("desktop layout smoke", () => {
     await page.getByRole("checkbox", { name: /^(网格|Grid)$/ }).uncheck();
     await page.getByTitle(/^(将操作栏放到顶部|Place actionbar at top)$/).click();
     await page.getByRole("button", { name: /^(石墨|Graphite)$/ }).click();
+    await page.getByRole("tab", { name: /^(快捷键|Shortcuts)$/ }).click();
     await shortcutInput(page, "Duplicate Selection").fill("Ctrl+Alt+D");
     await expect(page.locator(".canvas .grid")).toHaveCount(0);
     await expect(page.locator(".run-actionbar.top")).toBeVisible();
@@ -286,6 +319,9 @@ test.describe("desktop layout smoke", () => {
     await expect(page.locator(".run-actionbar.top")).toBeVisible();
     await expect(page.locator(".shell.theme-graphite")).toBeVisible();
     await editorSettingsButton(page).click();
+    await page.getByRole("tab", { name: /^(主工具栏|Main toolbar)$/ }).click();
+    await expect(page.getByLabel(/^(主工具栏按钮|Main toolbar buttons)$/)).toBeVisible();
+    await page.getByRole("tab", { name: /^(快捷键|Shortcuts)$/ }).click();
     await expect(shortcutInput(page, "Duplicate Selection")).toHaveValue("Ctrl+Alt+D");
     await page.screenshot({ path: test.info().outputPath("layout-editor-prefs-reload.png"), fullPage: true });
   });
@@ -494,6 +530,21 @@ async function assertLayout(page: Page): Promise<void> {
   }
 }
 
+async function assertToolbarFilledAndRunCentered(page: Page): Promise<void> {
+  const topbar = await visibleBox(page, ".topbar");
+  const toolbar = await visibleBox(page, ".toolbar");
+  const runButton = await visibleBox(page, ".toolbar-run-main");
+  const iconButton = await visibleBox(page, ".toolbar-primary-tools .icon-button");
+  const groupGaps = await page.locator(".toolbar > .toolbar-group").evaluateAll((groups) => {
+    const rects = groups.map((group) => group.getBoundingClientRect()).sort((left, right) => left.left - right.left);
+    return rects.slice(1).map((rect, index) => rect.left - rects[index].right);
+  });
+
+  expect(toolbar.width, "toolbar fills topbar").toBeGreaterThanOrEqual(topbar.width - 18);
+  expect(Math.max(...groupGaps), "toolbar groups should not leave a large empty gap").toBeLessThanOrEqual(18);
+  expect(runButton.width, "main run button emphasized").toBeGreaterThan(iconButton.width + 36);
+}
+
 async function assertSelectionToolboxLayout(page: Page): Promise<void> {
   await expectNoHorizontalOverflow(page);
   await assertInsideViewport(page, ".selection-toolbox");
@@ -507,21 +558,93 @@ async function assertSelectionToolboxLayout(page: Page): Promise<void> {
   }
 }
 
+async function assertCommentBoxUsesColor(page: Page, color: string): Promise<void> {
+  const actual = await page.locator(".comment-box").first().evaluate((comment) => {
+    const styles = getComputedStyle(comment);
+    const background = styles.backgroundColor.match(/\d+(\.\d+)?/g)?.map(Number) ?? [];
+    const border = styles.borderTopColor.match(/\d+(\.\d+)?/g)?.map(Number) ?? [];
+    return {
+      variable: styles.getPropertyValue("--comment-color").trim(),
+      background,
+      border
+    };
+  });
+  expect(actual.variable.toLowerCase(), "comment color variable").toBe(color);
+  expect(actual.background[0], "comment background red channel").toBeGreaterThan(actual.background[1]);
+  expect(actual.background[0], "comment background red channel").toBeGreaterThan(actual.background[2]);
+  expect(actual.border[0], "comment border red channel").toBeGreaterThan(actual.border[1]);
+  expect(actual.border[0], "comment border red channel").toBeGreaterThan(actual.border[2]);
+}
+
 async function assertPortHitAreas(page: Page): Promise<void> {
-  const portBoxes = await page.locator(".canvas .node:not(.routing-hub) .port").evaluateAll((ports) =>
-    ports.map((port) => {
+  const portBoxes = await page.locator(".canvas .node:not(.routing-hub) .port").evaluateAll((ports) => {
+    return ports.map((port) => {
       const rect = port.getBoundingClientRect();
+      const nodeRect = port.closest(".node")?.getBoundingClientRect();
+      const pinRect = port.querySelector(".pin")?.getBoundingClientRect();
+      const pin = port.querySelector(".pin");
       return {
         title: port.getAttribute("title") ?? "",
+        className: port.className,
         width: rect.width,
-        height: rect.height
+        height: rect.height,
+        pinWidth: pinRect?.width,
+        pinHeight: pinRect?.height,
+        pinLeft: pinRect?.left,
+        pinRight: pinRect?.right,
+        pinTop: pinRect?.top,
+        pinBottom: pinRect?.bottom,
+        nodeLeft: nodeRect?.left,
+        nodeRight: nodeRect?.right,
+        nodeTop: nodeRect?.top,
+        nodeBottom: nodeRect?.bottom,
+        pinTransform: pin ? getComputedStyle(pin).transform : undefined,
+        controlShape: pin ? getComputedStyle(pin, "::before").clipPath : undefined
       };
-    })
-  );
+    });
+  });
   expect(portBoxes.length).toBeGreaterThan(0);
+  const dataPinWidths = portBoxes.filter((box) => !box.className.includes("control")).map((box) => box.pinWidth ?? 0);
+  const maxDataPinWidth = Math.max(...dataPinWidths);
   for (const box of portBoxes) {
     expect(box.height, `${box.title} port height`).toBeGreaterThanOrEqual(28);
     expect(box.width, `${box.title} port width`).toBeGreaterThanOrEqual(28);
+    expect(box.pinLeft, `${box.title} pin left`).toBeGreaterThanOrEqual((box.nodeLeft ?? 0) + 1);
+    expect(box.pinRight, `${box.title} pin right`).toBeLessThanOrEqual((box.nodeRight ?? 0) - 1);
+    expect(box.pinTop, `${box.title} pin top`).toBeGreaterThanOrEqual((box.nodeTop ?? 0) + 1);
+    expect(box.pinBottom, `${box.title} pin bottom`).toBeLessThanOrEqual((box.nodeBottom ?? 0) - 1);
+    if (box.className.includes("control")) {
+      expect(box.pinWidth, `${box.title} control pin width`).toBeLessThanOrEqual(maxDataPinWidth + 3);
+      expect(box.pinHeight, `${box.title} control pin height`).toBeLessThanOrEqual((box.pinWidth ?? 0) + 1);
+      expect(box.pinTransform, `${box.title} control pin transform`).toBe("none");
+      expect(box.controlShape, `${box.title} control pin shape`).toContain("polygon");
+    }
+  }
+}
+
+async function assertRoutingHubPortsInsideBody(page: Page, selector: string): Promise<void> {
+  const result = await page.locator(selector).evaluate((node) => {
+    const nodeRect = node.getBoundingClientRect();
+    return [...node.querySelectorAll(".pin")].map((pin) => {
+      const rect = pin.getBoundingClientRect();
+      return {
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+        nodeLeft: nodeRect.left,
+        nodeRight: nodeRect.right,
+        nodeTop: nodeRect.top,
+        nodeBottom: nodeRect.bottom
+      };
+    });
+  });
+  expect(result.length, `${selector} pin count`).toBeGreaterThanOrEqual(2);
+  for (const pin of result) {
+    expect(pin.left, `${selector} pin left`).toBeGreaterThanOrEqual(pin.nodeLeft + 1);
+    expect(pin.right, `${selector} pin right`).toBeLessThanOrEqual(pin.nodeRight - 1);
+    expect(pin.top, `${selector} pin top`).toBeGreaterThanOrEqual(pin.nodeTop + 1);
+    expect(pin.bottom, `${selector} pin bottom`).toBeLessThanOrEqual(pin.nodeBottom - 1);
   }
 }
 
@@ -638,6 +761,65 @@ function largeRenderGraph(logCount: number) {
       toPortId: "exec",
       flowKind: "control"
     })),
+    layout: {
+      viewport: { x: 0, y: 0, zoom: 1 }
+    }
+  };
+}
+
+function routingHubLayoutGraph() {
+  return {
+    format: "blueprint-graph",
+    version: 1,
+    kind: "function",
+    id: "routing-hub-layout",
+    name: "Routing Hub Layout",
+    description: "Routing hub visual layout graph.",
+    templateMetadata: {
+      creationPath: "Blueprints",
+      inputs: [],
+      outputs: []
+    },
+    nodes: [
+      {
+        id: "source",
+        templateId: "builtin.string.concat",
+        position: { x: 120, y: 180 },
+        inputBindings: {}
+      },
+      {
+        id: "data-hub",
+        templateId: "builtin.routing.dataHub",
+        position: { x: 460, y: 220 },
+        inputBindings: {}
+      },
+      {
+        id: "sink",
+        templateId: "builtin.debug.log",
+        position: { x: 680, y: 180 },
+        inputBindings: {
+          message: { portId: "message", sourceKind: "link", linkId: "link-hub-sink" }
+        }
+      }
+    ],
+    links: [
+      {
+        id: "link-source-hub",
+        fromNodeId: "source",
+        fromPortId: "result",
+        toNodeId: "data-hub",
+        toPortId: "value",
+        flowKind: "data"
+      },
+      {
+        id: "link-hub-sink",
+        fromNodeId: "data-hub",
+        fromPortId: "out",
+        toNodeId: "sink",
+        toPortId: "message",
+        flowKind: "data"
+      }
+    ],
     layout: {
       viewport: { x: 0, y: 0, zoom: 1 }
     }

@@ -43,7 +43,7 @@ import {
   ZoomIn,
   ZoomOut
 } from "lucide-react";
-import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, type RefObject, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   BlueprintBookmark,
   BlueprintBreakpoint,
@@ -85,6 +85,7 @@ import { applyShortcutPrefs, commandShortcuts, EditorCommand, shortcutConflictTi
 import {
   defaultGraphEditorPrefs,
   linkRenderModes,
+  mainToolbarActionIds,
   mergeGraphEditorPrefsState,
   nodeLabelModes,
   readGraphEditorPrefs,
@@ -93,6 +94,7 @@ import {
   toolbarAlignments,
   type GraphEditorPrefs,
   type LinkRenderMode,
+  type MainToolbarActionId,
   type NodeLabelMode,
   type ToolbarAlignment
 } from "./editorPrefs";
@@ -191,6 +193,11 @@ interface NodePanelState {
   screen: Point;
   graph: Point;
   sourcePort?: DragPort;
+}
+
+interface NodePanelSize {
+  width: number;
+  height: number;
 }
 
 interface PanelSizes {
@@ -354,6 +361,7 @@ const emptyPanel: NodePanelState = {
   screen: { x: 0, y: 0 },
   graph: { x: 0, y: 0 }
 };
+const defaultNodePanelSize: NodePanelSize = { width: 680, height: 316 };
 
 type AlignMode = GraphAlignMode;
 type DistributeMode = GraphDistributeMode;
@@ -375,6 +383,7 @@ const canvasNodeCullThreshold = 260;
 const canvasNodeCullMargin = 420;
 const snapGridWorldSize = 24;
 const commentColorPalette = ["#d9a441", "#48b9c7", "#7ac46c", "#e05f50", "#b48cff", "#d98b45"];
+const fallbackCommentColor = commentColorPalette[0];
 const nodeAccentContrastBackground = "#1d1d1c";
 const minimumNodeAccentContrast = 2.25;
 const builtinCategoryAccents: CategoryAccentMap = {
@@ -401,6 +410,7 @@ export function App(props: AppProps = {}): JSX.Element {
   const shellRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const nodeFindInputRef = useRef<HTMLInputElement>(null);
+  const nodeFindDialogInputRef = useRef<HTMLInputElement>(null);
   const interactionStartGraph = useRef<BlueprintGraph | undefined>();
   const marqueeRef = useRef<MarqueeSelection | undefined>();
   const graphRef = useRef<BlueprintGraph | undefined>();
@@ -420,10 +430,12 @@ export function App(props: AppProps = {}): JSX.Element {
   const [nativeUndoRedo, setNativeUndoRedo] = useState(false);
   const [nodePanel, setNodePanel] = useState<NodePanelState>(emptyPanel);
   const [nodeFindQuery, setNodeFindQuery] = useState("");
+  const [nodeFindDialogOpen, setNodeFindDialogOpen] = useState(false);
   const [outlineQuery, setOutlineQuery] = useState("");
   const [search, setSearch] = useState("");
   const [activeTemplateCategory, setActiveTemplateCategory] = useState(allTemplateCategoryId);
   const [activeCandidateIndex, setActiveCandidateIndex] = useState(0);
+  const [nodePanelSize, setNodePanelSize] = useState<NodePanelSize>(defaultNodePanelSize);
   const [palettePrefs, setPalettePrefs] = useState<NodePalettePrefs>(() => readPalettePrefs(hostClient.getState()));
   const [dragPort, setDragPort] = useState<DragPort | undefined>();
   const [pointerGraph, setPointerGraph] = useState<Point>({ x: 0, y: 0 });
@@ -575,6 +587,7 @@ export function App(props: AppProps = {}): JSX.Element {
       storedPrefs.nodeLabelMode === editorPrefs.nodeLabelMode &&
       storedPrefs.language === editorPrefs.language &&
       storedPrefs.theme === editorPrefs.theme &&
+      mainToolbarActionsEqual(storedPrefs.mainToolbarActions, editorPrefs.mainToolbarActions) &&
       shortcutPrefsEqual(storedPrefs.shortcuts, editorPrefs.shortcuts)
     ) {
       return;
@@ -759,6 +772,23 @@ export function App(props: AppProps = {}): JSX.Element {
     },
     [focusLinkById, focusNodeById]
   );
+
+  const openNodeFindDialog = useCallback(() => {
+    setEditorSettingsOpen(false);
+    setTemplateRegistryOpen(false);
+    setToolbarOverflowOpen(false);
+    setNodeFindDialogOpen(true);
+    dispatchCanvasInteraction({ type: "openMenu", menu: "nodeFind" });
+    window.setTimeout(() => {
+      nodeFindDialogInputRef.current?.focus();
+      nodeFindDialogInputRef.current?.select();
+    }, 0);
+  }, []);
+
+  const closeNodeFindDialog = useCallback(() => {
+    setNodeFindDialogOpen(false);
+    dispatchCanvasInteraction({ type: "cancel" });
+  }, []);
 
   useEffect(() => {
     const listener = (event: MessageEvent<HostToEditorMessage>) => {
@@ -2365,7 +2395,7 @@ export function App(props: AppProps = {}): JSX.Element {
     },
     {
       id: "workbench.editorSettings",
-      title: t("commands.workbench.editorSettings"),
+      title: t("commands.workbench.prefsPanel"),
       category: commandCategories.workbench,
       run: () => {
         setTemplateRegistryOpen(false);
@@ -2400,10 +2430,7 @@ export function App(props: AppProps = {}): JSX.Element {
       title: t("commands.graph.findNode"),
       category: commandCategories.graph,
       shortcut: "Ctrl+F",
-      run: () => {
-        nodeFindInputRef.current?.focus();
-        nodeFindInputRef.current?.select();
-      },
+      run: openNodeFindDialog,
       keywords: ["search", "outline"]
     },
     { id: "graph.undo", title: t("commands.graph.undo"), category: commandCategories.edit, shortcut: "Ctrl+Z", run: undoGraph, disabled: !nativeUndoRedo && !history.past.length },
@@ -2480,15 +2507,7 @@ export function App(props: AppProps = {}): JSX.Element {
       {runtimeOutput ? (
         <pre className={runtimeOutput.ok ? "run-log ok" : "run-log error"}>{runtimeOutput.text || runtimeOutput.message}</pre>
       ) : issues.length ? (
-        <div className="run-log-list">
-          {issues.map((issue) => (
-            <button key={issueKey(issue)} className={`run-log-issue ${issue.severity}`} onClick={() => focusIssue(issue)}>
-              <strong>{issue.severity}</strong>
-              <span>{issue.message}</span>
-              {diagnosticLocationText(issue) ? <small>{diagnosticLocationText(issue)}</small> : null}
-            </button>
-          ))}
-        </div>
+        <RunLogIssueList issues={issues} t={t} onIssueFocus={focusIssue} />
       ) : (
         <pre className="run-log">{compileMessage || t("common.ready")}</pre>
       )}
@@ -2503,10 +2522,7 @@ export function App(props: AppProps = {}): JSX.Element {
       section: t("toolbarOverflow.quick"),
       tier: "secondary",
       icon: <Search size={14} />,
-      run: () => {
-        nodeFindInputRef.current?.focus();
-        nodeFindInputRef.current?.select();
-      }
+      run: openNodeFindDialog
     },
     { id: "templateRegistry", title: t("toolbar.templateRegistry"), section: t("toolbarOverflow.quick"), tier: "secondary", icon: <PackageIcon size={14} />, run: () => {
       setEditorSettingsOpen(false);
@@ -2536,6 +2552,59 @@ export function App(props: AppProps = {}): JSX.Element {
     { id: "distributeHorizontal", title: t("commands.graph.distributeHorizontal"), section: t("toolbarOverflow.layout"), tier: "overflow", icon: <AlignHorizontalSpaceBetween size={14} />, run: () => distributeSelection("horizontal"), disabled: !canDistributeSelection },
     { id: "distributeVertical", title: t("commands.graph.distributeVertical"), section: t("toolbarOverflow.layout"), tier: "overflow", icon: <AlignVerticalSpaceBetween size={14} />, run: () => distributeSelection("vertical"), disabled: !canDistributeSelection }
   ];
+  const visibleMainToolbarActions = new Set(editorPrefs.mainToolbarActions);
+  const overflowActionById = new Map(toolbarOverflowActions.map((action) => [action.id, action]));
+  const mainToolbarActionVisible = (id: MainToolbarActionId): boolean => visibleMainToolbarActions.has(id);
+  const promotedActionButton = (id: string): JSX.Element | null => {
+    const action = overflowActionById.get(id);
+    if (!action) {
+      return null;
+    }
+    return (
+      <button key={id} className="icon-button" title={action.title} onClick={action.run} disabled={action.disabled}>
+        {action.icon}
+      </button>
+    );
+  };
+  const primaryToolbarItems = [
+    mainToolbarActionVisible("commandPalette") ? <button key="commandPalette" className="icon-button" title={t("toolbar.commandPalette")} onClick={() => setCommandPaletteOpen(true)}><Command size={16} /></button> : null,
+    mainToolbarActionVisible("compile") ? promotedActionButton("compile") : null,
+    mainToolbarActionVisible("validate") ? promotedActionButton("validate") : null,
+    mainToolbarActionVisible("findNode") ? promotedActionButton("findNode") : null,
+    mainToolbarActionVisible("fitGraph") ? <button key="fitGraph" className="icon-button" title={t("canvasCommands.fitGraph")} onClick={fitGraphToCanvas} disabled={viewportLocked}><Focus size={16} /></button> : null,
+    mainToolbarActionVisible("resetZoom") ? <button key="resetZoom" className="icon-button text-button" title={t("canvasCommands.resetZoom")} onClick={() => zoomViewportAtCanvasCenter(1)} disabled={viewportLocked}>{Math.round(viewport.zoom * 100)}%</button> : null
+  ].filter(Boolean);
+  const viewToolbarItems = [
+    mainToolbarActionVisible("minimap") ? <button key="minimap" className={minimapVisible ? "icon-button active" : "icon-button"} title={minimapVisible ? t("canvasCommands.hideMinimap") : t("canvasCommands.showMinimap")} onClick={() => updateEditorPrefs({ minimapVisible: !minimapVisible })}><MapIcon size={16} /></button> : null,
+    mainToolbarActionVisible("links") ? <button key="links" className={linksVisible ? "icon-button active" : "icon-button"} title={linksVisible ? t("canvasCommands.hideLinks") : t("canvasCommands.showLinks")} onClick={() => updateEditorPrefs({ linkRenderMode: linkRenderMode === "hidden" ? "spline" : "hidden" })}>{linksVisible ? <Eye size={16} /> : <EyeOff size={16} />}</button> : null,
+    mainToolbarActionVisible("templateRegistry") ? promotedActionButton("templateRegistry") : null,
+    mainToolbarActionVisible("prefsPanel") ? (
+      <button key="prefsPanel" className={editorSettingsOpen ? "icon-button active" : "icon-button"} title={t("toolbar.prefsPanel")} onClick={() => {
+        setToolbarOverflowOpen(false);
+        setTemplateRegistryOpen(false);
+        setEditorSettingsOpen(!editorSettingsOpen);
+        dispatchCanvasInteraction(editorSettingsOpen ? { type: "cancel" } : { type: "openMenu", menu: "settings" });
+      }}><Settings size={16} /></button>
+    ) : null,
+    mainToolbarActionVisible("overflow") ? (
+      <button key="overflow" className={toolbarOverflowOpen ? "icon-button active" : "icon-button"} title={t("toolbar.overflow")} onClick={() => {
+        setEditorSettingsOpen(false);
+        setTemplateRegistryOpen(false);
+        setToolbarOverflowOpen(!toolbarOverflowOpen);
+        dispatchCanvasInteraction(toolbarOverflowOpen ? { type: "cancel" } : { type: "openMenu", menu: "toolbar" });
+      }}><MoreHorizontal size={16} /></button>
+    ) : null
+  ].filter(Boolean);
+  const runToolbarItems = [
+    mainToolbarActionVisible("run") ? (
+      <button key="run" className={isRuntimeRunning ? "icon-button toolbar-run-main warning" : "icon-button toolbar-run-main"} title={isRuntimeRunning ? t("toolbar.cancelRun") : t("toolbar.runGraph")} onClick={isRuntimeRunning ? requestCancelRun : requestRun}>
+        {isRuntimeRunning ? <Square size={16} /> : <Play size={18} />}
+        <span>{isRuntimeRunning ? t("toolbar.cancelRun") : t("toolbar.runGraph")}</span>
+      </button>
+    ) : null,
+    mainToolbarActionVisible("stepRun") ? <button key="stepRun" className="icon-button toolbar-run-step" title={isRuntimeRunning ? t("toolbar.stepRuntime") : t("toolbar.stepRun")} onClick={isRuntimeRunning ? requestRuntimeStep : requestStepRun}><StepForward size={16} /></button> : null,
+    isRuntimeRunning && mainToolbarActionVisible("stepRun") ? <button key="continueRuntime" className="icon-button toolbar-run-step" title={t("toolbar.continueRuntime")} onClick={requestRuntimeContinue}><Play size={16} /></button> : null
+  ].filter(Boolean);
 
   return (
     <div className={shellClassName} style={shellStyle} ref={shellRef}>
@@ -2610,31 +2679,14 @@ export function App(props: AppProps = {}): JSX.Element {
       <main className="editor">
         <div className={`topbar toolbar-align-${toolbarAlignment}`}>
           <div className="toolbar">
-            <span className="toolbar-group">
-              <button className="icon-button" title={t("toolbar.commandPalette")} onClick={() => setCommandPaletteOpen(true)}><Command size={16} /></button>
-              <button className={editorSettingsOpen ? "icon-button active" : "icon-button"} title={t("toolbar.editorSettings")} onClick={() => {
-                setToolbarOverflowOpen(false);
-                setTemplateRegistryOpen(false);
-                setEditorSettingsOpen(!editorSettingsOpen);
-                dispatchCanvasInteraction(editorSettingsOpen ? { type: "cancel" } : { type: "openMenu", menu: "settings" });
-              }}><Settings size={16} /></button>
-              <button className={toolbarOverflowOpen ? "icon-button active" : "icon-button"} title={t("toolbar.overflow")} onClick={() => {
-                setEditorSettingsOpen(false);
-                setTemplateRegistryOpen(false);
-                setToolbarOverflowOpen(!toolbarOverflowOpen);
-                dispatchCanvasInteraction(toolbarOverflowOpen ? { type: "cancel" } : { type: "openMenu", menu: "toolbar" });
-              }}><MoreHorizontal size={16} /></button>
-            </span>
-            <span className="toolbar-group toolbar-view-controls" aria-label={t("canvasCommands.label")}>
-              <button className="icon-button" title={t("canvasCommands.fitGraph")} onClick={fitGraphToCanvas} disabled={viewportLocked}><Focus size={16} /></button>
-              <button className="icon-button text-button" title={t("canvasCommands.resetZoom")} onClick={() => zoomViewportAtCanvasCenter(1)} disabled={viewportLocked}>{Math.round(viewport.zoom * 100)}%</button>
-              <button className={minimapVisible ? "icon-button active" : "icon-button"} title={minimapVisible ? t("canvasCommands.hideMinimap") : t("canvasCommands.showMinimap")} onClick={() => updateEditorPrefs({ minimapVisible: !minimapVisible })}><MapIcon size={16} /></button>
-              <button className={linksVisible ? "icon-button active" : "icon-button"} title={linksVisible ? t("canvasCommands.hideLinks") : t("canvasCommands.showLinks")} onClick={() => updateEditorPrefs({ linkRenderMode: linkRenderMode === "hidden" ? "spline" : "hidden" })}>{linksVisible ? <Eye size={16} /> : <EyeOff size={16} />}</button>
-            </span>
+            {primaryToolbarItems.length ? <span className="toolbar-group toolbar-primary-tools">{primaryToolbarItems}</span> : null}
+            {runToolbarItems.length ? <span className="toolbar-group toolbar-run-controls" aria-label={t("toolbar.runGraph")}>{runToolbarItems}</span> : null}
+            {viewToolbarItems.length ? <span className="toolbar-group toolbar-view-controls" aria-label={t("canvasCommands.label")}>{viewToolbarItems}</span> : null}
             {editorSettingsOpen ? (
               <EditorSettingsPanel
                 prefs={editorPrefs}
                 commands={baseEditorCommands}
+                toolbarActions={mainToolbarActionIds}
                 t={t}
                 onChange={updateEditorPrefs}
                 onReset={() => setEditorPrefs(defaultGraphEditorPrefs)}
@@ -2646,15 +2698,32 @@ export function App(props: AppProps = {}): JSX.Element {
                 }}
               />
             ) : null}
+            {nodeFindDialogOpen ? (
+              <NodeFindDialog
+                inputRef={nodeFindDialogInputRef}
+                query={nodeFindQuery}
+                graphResults={nodeFindResults}
+                solutionResults={solutionFindResults}
+                selectedNodeIds={selectedNodeIds}
+                t={t}
+                locale={editorPrefs.language}
+                nodeLabelMode={editorPrefs.nodeLabelMode}
+                onQueryChange={setNodeFindQuery}
+                onFocusNode={(nodeId) => {
+                  focusNodeById(nodeId);
+                  closeNodeFindDialog();
+                }}
+                onOpenGraph={(graphPath) => {
+                  hostClient.requestOpenGraph(graphPath);
+                  closeNodeFindDialog();
+                }}
+                onClose={closeNodeFindDialog}
+              />
+            ) : null}
             {toolbarOverflowOpen ? <ToolbarOverflowMenu actions={toolbarOverflowActions} t={t} onClose={() => {
               setToolbarOverflowOpen(false);
               dispatchCanvasInteraction({ type: "cancel" });
             }} /> : null}
-            <span className="toolbar-group">
-              <button className="icon-button" title={isRuntimeRunning ? t("toolbar.cancelRun") : t("toolbar.runGraph")} onClick={isRuntimeRunning ? requestCancelRun : requestRun}>{isRuntimeRunning ? <Square size={16} /> : <Play size={16} />}</button>
-              <button className="icon-button" title={isRuntimeRunning ? t("toolbar.stepRuntime") : t("toolbar.stepRun")} onClick={isRuntimeRunning ? requestRuntimeStep : requestStepRun}><StepForward size={16} /></button>
-              {isRuntimeRunning ? <button className="icon-button" title={t("toolbar.continueRuntime")} onClick={requestRuntimeContinue}><Play size={16} /></button> : null}
-            </span>
           </div>
         </div>
 
@@ -2862,6 +2931,7 @@ export function App(props: AppProps = {}): JSX.Element {
               {nodePanel.open ? (
                 <NodeCreationPanel
                   position={nodePanel.screen}
+                  size={nodePanelSize}
                   sourcePort={nodePanel.sourcePort}
                   search={search}
                   categories={categories}
@@ -2880,6 +2950,7 @@ export function App(props: AppProps = {}): JSX.Element {
                   onActiveIndexChange={setActiveCandidateIndex}
                   onPick={addNode}
                   onToggleFavorite={toggleFavoriteTemplate}
+                  onResize={setNodePanelSize}
                   onClose={() => {
                     setNodePanel(emptyPanel);
                     dispatchCanvasInteraction({ type: "cancel" });
@@ -3045,6 +3116,7 @@ function CommentBox(props: {
   onCommentResizeStart(event: React.PointerEvent<HTMLButtonElement>): void;
 }): JSX.Element {
   const title = props.comment.title || props.t("comment.fallback");
+  const commentColor = normalizeColorInput(props.comment.color ?? fallbackCommentColor);
   return (
     <div
       className={props.selected ? "comment-box selected" : "comment-box"}
@@ -3054,8 +3126,8 @@ function CommentBox(props: {
         top: props.comment.position.y,
         width: props.comment.size.width,
         height: props.comment.size.height,
-        borderColor: props.comment.color ?? undefined
-      }}
+        "--comment-color": commentColor
+      } as CSSProperties}
       onPointerDown={(event) => {
         event.stopPropagation();
         props.onSelect(event);
@@ -3274,6 +3346,15 @@ function hexToRgb(value: string): { r: number; g: number; b: number } | undefine
     };
   }
   return undefined;
+}
+
+function normalizeColorInput(value: string): string {
+  const trimmed = value.trim();
+  const rgb = hexToRgb(trimmed);
+  if (!rgb) {
+    return fallbackCommentColor;
+  }
+  return `#${[rgb.r, rgb.g, rgb.b].map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
 }
 
 function relativeLuminance(color: { r: number; g: number; b: number }): number {
@@ -3533,6 +3614,120 @@ function TemplateRegistryPanel(props: {
   );
 }
 
+function NodeFindDialog(props: {
+  inputRef: RefObject<HTMLInputElement>;
+  query: string;
+  graphResults: NodeFindResult[];
+  solutionResults: SolutionGraphFindResult[];
+  selectedNodeIds: Set<string>;
+  t: Translator;
+  locale: Locale;
+  nodeLabelMode: NodeLabelMode;
+  onQueryChange(value: string): void;
+  onFocusNode(nodeId: string): void;
+  onOpenGraph(graphPath: string): void;
+  onClose(): void;
+}): JSX.Element {
+  useEffect(() => {
+    props.inputRef.current?.focus();
+    props.inputRef.current?.select();
+  }, [props.inputRef]);
+
+  const hasQuery = props.query.trim().length > 0;
+  const templateName = (template: BlueprintNodeTemplate | undefined, fallback: string) => {
+    const localized = localizeTemplate(template, props.locale, fallbackLocale, builtinNodeI18nCatalog);
+    return displayText(localized.name, template?.name ?? fallback, props.nodeLabelMode);
+  };
+  const focusFirst = () => {
+    const first = props.graphResults[0];
+    if (first) {
+      props.onFocusNode(first.node.id);
+      return;
+    }
+    const firstSolution = props.solutionResults[0];
+    if (firstSolution) {
+      props.onOpenGraph(firstSolution.graphPath);
+    }
+  };
+
+  return (
+    <div
+      className="node-find-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          props.onClose();
+        }
+      }}
+    >
+      <section
+        className="node-find-dialog"
+        role="dialog"
+        aria-label={props.t("nodeFind.title")}
+        onPointerDown={isolateOverlayEvent}
+        onWheel={isolateOverlayEvent}
+        onContextMenu={isolateOverlayContextMenu}
+      >
+        <header className="node-find-title">
+          <Search size={16} />
+          <strong>{props.t("nodeFind.title")}</strong>
+          <button type="button" title={props.t("nodeFind.close")} onClick={props.onClose}>
+            <XCircle size={14} />
+          </button>
+        </header>
+        <label className="node-find-search">
+          <Search size={15} />
+          <input
+            ref={props.inputRef}
+            value={props.query}
+            placeholder={props.t("nodeFind.placeholder")}
+            onChange={(event) => props.onQueryChange(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                focusFirst();
+              } else if (event.key === "Escape") {
+                props.onClose();
+              }
+            }}
+          />
+        </label>
+        <div className="node-find-results">
+          {hasQuery ? (
+            <>
+              {props.graphResults.map(({ node, template, matchLabel }) => (
+                <button
+                  key={node.id}
+                  type="button"
+                  className={props.selectedNodeIds.has(node.id) ? "node-find-item active" : "node-find-item"}
+                  onClick={() => props.onFocusNode(node.id)}
+                >
+                  <span>{templateName(template, node.templateId)}</span>
+                  <small>{matchLabel ?? node.id}</small>
+                </button>
+              ))}
+              {props.solutionResults.length ? <div className="node-find-group-title">{props.t("sidebar.solutionMatches")}</div> : null}
+              {props.solutionResults.map((entry) => (
+                <button
+                  key={`${entry.graphPath}:${entry.nodeId ?? "graph"}`}
+                  type="button"
+                  className="node-find-item"
+                  onClick={() => props.onOpenGraph(entry.graphPath)}
+                >
+                  <span>{entry.nodeId ? templateName(entry.template, entry.nodeId) : entry.graphName}</span>
+                  <small>{entry.matchLabel ?? `${entry.projectName} / ${entry.graphKind}`}</small>
+                </button>
+              ))}
+              {!props.graphResults.length && !props.solutionResults.length ? <span className="node-find-empty">{props.t("sidebar.noNodes")}</span> : null}
+            </>
+          ) : (
+            <span className="node-find-empty">{props.t("nodeFind.empty")}</span>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function TemplateRegistrySourceDetails(props: { summary: TemplateRegistryPackageSummary; enabled: boolean; canToggle: boolean; t: Translator; onToggleEnabled(): void }): JSX.Element {
   return (
     <>
@@ -3587,6 +3782,7 @@ function TemplateRegistrySourceDetails(props: { summary: TemplateRegistryPackage
 function EditorSettingsPanel(props: {
   prefs: GraphEditorPrefs;
   commands: EditorCommand[];
+  toolbarActions: MainToolbarActionId[];
   t: Translator;
   onChange(updates: Partial<GraphEditorPrefs>): void;
   onReset(): void;
@@ -3595,6 +3791,7 @@ function EditorSettingsPanel(props: {
   onClose(): void;
 }): JSX.Element {
   const [transferStatus, setTransferStatus] = useState<"idle" | "exported" | "exportFailed" | "imported" | "importFailed" | "themeExported" | "themeExportFailed" | "themeImported" | "themeImportFailed">("idle");
+  const [activePage, setActivePage] = useState<"general" | "mainToolbar" | "shortcuts">("general");
   const importSettings = () => {
     const text = window.prompt(props.t("settings.jsonPrompt"), serializeGraphEditorPrefs(props.prefs));
     if (text === null) {
@@ -3636,6 +3833,15 @@ function EditorSettingsPanel(props: {
     }
     props.onChange({ shortcuts: nextShortcuts });
   };
+  const updateMainToolbarAction = (actionId: MainToolbarActionId, enabled: boolean) => {
+    const current = new Set(props.prefs.mainToolbarActions);
+    if (enabled) {
+      current.add(actionId);
+    } else {
+      current.delete(actionId);
+    }
+    props.onChange({ mainToolbarActions: props.toolbarActions.filter((id) => current.has(id)) });
+  };
 
   return (
     <div
@@ -3652,177 +3858,212 @@ function EditorSettingsPanel(props: {
           <XCircle size={14} />
         </button>
       </div>
-      <label className="setting-toggle">
-        <input
-          type="checkbox"
-          checked={props.prefs.gridVisible}
-          onChange={(event) => props.onChange({ gridVisible: event.currentTarget.checked })}
-        />
-        <span>{props.t("settings.grid")}</span>
-      </label>
-      <label className="setting-toggle">
-        <input
-          type="checkbox"
-          checked={props.prefs.snapToGrid}
-          onChange={(event) => props.onChange({ snapToGrid: event.currentTarget.checked })}
-        />
-        <span>{props.t("settings.snapToGrid")}</span>
-      </label>
-      <label className="setting-toggle">
-        <input
-          type="checkbox"
-          checked={props.prefs.minimapVisible}
-          onChange={(event) => props.onChange({ minimapVisible: event.currentTarget.checked })}
-        />
-        <span>{props.t("settings.minimap")}</span>
-      </label>
-      <div className="setting-row">
-        <span>{props.t("settings.links")}</span>
-        <div className="setting-segmented" aria-label={props.t("settings.linkRenderMode")}>
-          {linkRenderModes.map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              className={props.prefs.linkRenderMode === mode ? "active" : ""}
-              title={props.t("settings.setLinkMode", { mode })}
-              onClick={() => props.onChange({ linkRenderMode: mode })}
-            >
-              {mode}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="setting-row">
-        <span>{props.t("settings.actionbar")}</span>
-        <div className="setting-segmented" aria-label={props.t("settings.actionbarPlacement")}>
+      <div className="editor-settings-tabs" role="tablist" aria-label={props.t("settings.pages")}>
+        {(["general", "mainToolbar", "shortcuts"] as const).map((pageId) => (
           <button
+            key={pageId}
             type="button"
-            className={props.prefs.actionBarPlacement === "bottom" ? "active" : ""}
-            title={props.t("settings.placeActionbarBottom")}
-            onClick={() => props.onChange({ actionBarPlacement: "bottom" })}
+            role="tab"
+            aria-selected={activePage === pageId}
+            className={activePage === pageId ? "active" : ""}
+            onClick={() => setActivePage(pageId)}
           >
-            {props.t("settings.actionbarBottom")}
+            {props.t(`settings.page.${pageId}`)}
           </button>
-          <button
-            type="button"
-            className={props.prefs.actionBarPlacement === "top" ? "active" : ""}
-            title={props.t("settings.placeActionbarTop")}
-            onClick={() => props.onChange({ actionBarPlacement: "top" })}
-          >
-            {props.t("settings.actionbarTop")}
-          </button>
-        </div>
+        ))}
       </div>
-      <div className="setting-row">
-        <span>{props.t("settings.toolbar")}</span>
-        <div className="setting-segmented" aria-label={props.t("settings.toolbarAlignment")}>
-          {toolbarAlignments.map((alignment) => (
-            <button
-              key={alignment}
-              type="button"
-              className={props.prefs.toolbarAlignment === alignment ? "active" : ""}
-              title={props.t(`settings.placeToolbar${toolbarAlignmentKeySuffix(alignment)}`)}
-              onClick={() => props.onChange({ toolbarAlignment: alignment })}
-            >
-              {props.t(`settings.toolbar${toolbarAlignmentKeySuffix(alignment)}`)}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="setting-row">
-        <span>{props.t("settings.nodeLabels")}</span>
-        <div className="setting-segmented" aria-label={props.t("settings.nodeLabelMode")}>
-          {nodeLabelModes.map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              className={props.prefs.nodeLabelMode === mode ? "active" : ""}
-              title={props.t("settings.setNodeLabelMode", { mode: props.t(`settings.nodeLabelMode.${mode}`) })}
-              onClick={() => props.onChange({ nodeLabelMode: mode })}
-            >
-              {props.t(`settings.nodeLabelMode.${mode}`)}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="setting-row">
-        <span>{props.t("settings.language")}</span>
-        <div className="setting-segmented" aria-label={props.t("settings.languageSelector")}>
-          {supportedLocales.map((locale) => (
-            <button
-              key={locale}
-              type="button"
-              className={props.prefs.language === locale ? "active" : ""}
-              onClick={() => props.onChange({ language: locale })}
-            >
-              {props.t(`settings.language.${locale}`)}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="setting-row">
-        <span>{props.t("settings.theme")}</span>
-        <div className="setting-segmented" aria-label={props.t("settings.themeSelector")}>
-          {editorThemes.map((theme) => (
-            <button
-              key={theme.id}
-              type="button"
-              className={props.prefs.theme === theme.id ? "active" : ""}
-              onClick={() => props.onChange({ theme: theme.id })}
-            >
-              {props.t(theme.labelKey)}
-            </button>
-          ))}
-          {props.prefs.customTheme ? (
-            <button
-              type="button"
-              className={props.prefs.theme === "custom" ? "active" : ""}
-              title={props.t("settings.theme.customTitle", { name: props.prefs.customTheme.name })}
-              onClick={() => props.onChange({ theme: "custom" })}
-            >
-              {props.prefs.customTheme.name || props.t("settings.theme.custom")}
-            </button>
-          ) : null}
-        </div>
-      </div>
-      <div className="setting-row">
-        <span>{props.t("settings.themeConfig")}</span>
-        <div className="setting-segmented" aria-label={props.t("settings.themeConfig")}>
-          <button type="button" title={props.t("settings.importThemeTitle")} onClick={importTheme}>
-            {props.t("common.import")}
-          </button>
-          <button type="button" title={props.t("settings.exportThemeTitle")} onClick={() => void exportTheme()} disabled={!props.prefs.customTheme}>
-            {props.t("common.export")}
-          </button>
-        </div>
-      </div>
-      <div className="setting-shortcuts" aria-label={props.t("settings.keyboardShortcuts")}>
-        <div className="setting-section-title">{props.t("settings.shortcuts")}</div>
-        {props.commands.map((command) => {
-          const defaultShortcut = commandShortcuts(command)[0] ?? "";
-          const customShortcut = props.prefs.shortcuts[command.id] ?? "";
-          const conflicts = customShortcut ? shortcutConflictTitles(props.commands, command.id, customShortcut, props.prefs.shortcuts) : [];
-          return (
-            <label key={command.id} className={conflicts.length ? "setting-shortcut-row conflict" : "setting-shortcut-row"}>
-              <span className="setting-shortcut-label">
-                <strong>{command.title}</strong>
-                <small>{command.category}</small>
-              </span>
+      <div className="editor-settings-page">
+        {activePage === "general" ? (
+          <>
+            <label className="setting-toggle">
               <input
-                value={customShortcut}
-                placeholder={defaultShortcut ? shortcutLabel(defaultShortcut) : props.t("settings.unassigned")}
-                aria-label={props.t("settings.shortcutFor", { title: command.title })}
-                onChange={(event) => updateShortcut(command.id, event.currentTarget.value)}
+                type="checkbox"
+                checked={props.prefs.gridVisible}
+                onChange={(event) => props.onChange({ gridVisible: event.currentTarget.checked })}
               />
-              {customShortcut ? (
-                <button type="button" title={props.t("settings.resetShortcutFor", { title: command.title })} onClick={() => updateShortcut(command.id, "")}>
-                  {props.t("common.reset")}
-                </button>
-              ) : null}
-              {conflicts.length ? <small className="setting-shortcut-conflict">{props.t("settings.conflictsWith", { titles: conflicts.join(", ") })}</small> : null}
+              <span>{props.t("settings.grid")}</span>
             </label>
-          );
-        })}
+            <label className="setting-toggle">
+              <input
+                type="checkbox"
+                checked={props.prefs.snapToGrid}
+                onChange={(event) => props.onChange({ snapToGrid: event.currentTarget.checked })}
+              />
+              <span>{props.t("settings.snapToGrid")}</span>
+            </label>
+            <label className="setting-toggle">
+              <input
+                type="checkbox"
+                checked={props.prefs.minimapVisible}
+                onChange={(event) => props.onChange({ minimapVisible: event.currentTarget.checked })}
+              />
+              <span>{props.t("settings.minimap")}</span>
+            </label>
+            <div className="setting-row">
+              <span>{props.t("settings.links")}</span>
+              <div className="setting-segmented" aria-label={props.t("settings.linkRenderMode")}>
+                {linkRenderModes.map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={props.prefs.linkRenderMode === mode ? "active" : ""}
+                    title={props.t("settings.setLinkMode", { mode })}
+                    onClick={() => props.onChange({ linkRenderMode: mode })}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="setting-row">
+              <span>{props.t("settings.actionbar")}</span>
+              <div className="setting-segmented" aria-label={props.t("settings.actionbarPlacement")}>
+                <button
+                  type="button"
+                  className={props.prefs.actionBarPlacement === "bottom" ? "active" : ""}
+                  title={props.t("settings.placeActionbarBottom")}
+                  onClick={() => props.onChange({ actionBarPlacement: "bottom" })}
+                >
+                  {props.t("settings.actionbarBottom")}
+                </button>
+                <button
+                  type="button"
+                  className={props.prefs.actionBarPlacement === "top" ? "active" : ""}
+                  title={props.t("settings.placeActionbarTop")}
+                  onClick={() => props.onChange({ actionBarPlacement: "top" })}
+                >
+                  {props.t("settings.actionbarTop")}
+                </button>
+              </div>
+            </div>
+            <div className="setting-row">
+              <span>{props.t("settings.toolbar")}</span>
+              <div className="setting-segmented" aria-label={props.t("settings.toolbarAlignment")}>
+                {toolbarAlignments.map((alignment) => (
+                  <button
+                    key={alignment}
+                    type="button"
+                    className={props.prefs.toolbarAlignment === alignment ? "active" : ""}
+                    title={props.t(`settings.placeToolbar${toolbarAlignmentKeySuffix(alignment)}`)}
+                    onClick={() => props.onChange({ toolbarAlignment: alignment })}
+                  >
+                    {props.t(`settings.toolbar${toolbarAlignmentKeySuffix(alignment)}`)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="setting-row">
+              <span>{props.t("settings.nodeLabels")}</span>
+              <div className="setting-segmented" aria-label={props.t("settings.nodeLabelMode")}>
+                {nodeLabelModes.map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={props.prefs.nodeLabelMode === mode ? "active" : ""}
+                    title={props.t("settings.setNodeLabelMode", { mode: props.t(`settings.nodeLabelMode.${mode}`) })}
+                    onClick={() => props.onChange({ nodeLabelMode: mode })}
+                  >
+                    {props.t(`settings.nodeLabelMode.${mode}`)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="setting-row">
+              <span>{props.t("settings.language")}</span>
+              <div className="setting-segmented" aria-label={props.t("settings.languageSelector")}>
+                {supportedLocales.map((locale) => (
+                  <button
+                    key={locale}
+                    type="button"
+                    className={props.prefs.language === locale ? "active" : ""}
+                    onClick={() => props.onChange({ language: locale })}
+                  >
+                    {props.t(`settings.language.${locale}`)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="setting-row">
+              <span>{props.t("settings.theme")}</span>
+              <div className="setting-segmented" aria-label={props.t("settings.themeSelector")}>
+                {editorThemes.map((theme) => (
+                  <button
+                    key={theme.id}
+                    type="button"
+                    className={props.prefs.theme === theme.id ? "active" : ""}
+                    onClick={() => props.onChange({ theme: theme.id })}
+                  >
+                    {props.t(theme.labelKey)}
+                  </button>
+                ))}
+                {props.prefs.customTheme ? (
+                  <button
+                    type="button"
+                    className={props.prefs.theme === "custom" ? "active" : ""}
+                    title={props.t("settings.theme.customTitle", { name: props.prefs.customTheme.name })}
+                    onClick={() => props.onChange({ theme: "custom" })}
+                  >
+                    {props.prefs.customTheme.name || props.t("settings.theme.custom")}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            <div className="setting-row">
+              <span>{props.t("settings.themeConfig")}</span>
+              <div className="setting-segmented" aria-label={props.t("settings.themeConfig")}>
+                <button type="button" title={props.t("settings.importThemeTitle")} onClick={importTheme}>
+                  {props.t("common.import")}
+                </button>
+                <button type="button" title={props.t("settings.exportThemeTitle")} onClick={() => void exportTheme()} disabled={!props.prefs.customTheme}>
+                  {props.t("common.export")}
+                </button>
+              </div>
+            </div>
+          </>
+        ) : null}
+        {activePage === "mainToolbar" ? (
+          <div className="setting-toolbar-actions" aria-label={props.t("settings.mainToolbarActions")}>
+            {props.toolbarActions.map((actionId) => (
+              <label key={actionId} className="setting-toggle compact" data-toolbar-action={actionId}>
+                <input
+                  type="checkbox"
+                  checked={props.prefs.mainToolbarActions.includes(actionId)}
+                  onChange={(event) => updateMainToolbarAction(actionId, event.currentTarget.checked)}
+                />
+                <span>{props.t(`settings.mainToolbarAction.${actionId}`)}</span>
+              </label>
+            ))}
+          </div>
+        ) : null}
+        {activePage === "shortcuts" ? (
+          <div className="setting-shortcuts" aria-label={props.t("settings.keyboardShortcuts")}>
+            {props.commands.map((command) => {
+              const defaultShortcut = commandShortcuts(command)[0] ?? "";
+              const customShortcut = props.prefs.shortcuts[command.id] ?? "";
+              const conflicts = customShortcut ? shortcutConflictTitles(props.commands, command.id, customShortcut, props.prefs.shortcuts) : [];
+              return (
+                <label key={command.id} className={conflicts.length ? "setting-shortcut-row conflict" : "setting-shortcut-row"}>
+                  <span className="setting-shortcut-label">
+                    <strong>{command.title}</strong>
+                    <small>{command.category}</small>
+                  </span>
+                  <input
+                    value={customShortcut}
+                    placeholder={defaultShortcut ? shortcutLabel(defaultShortcut) : props.t("settings.unassigned")}
+                    aria-label={props.t("settings.shortcutFor", { title: command.title })}
+                    onChange={(event) => updateShortcut(command.id, event.currentTarget.value)}
+                  />
+                  {customShortcut ? (
+                    <button type="button" title={props.t("settings.resetShortcutFor", { title: command.title })} onClick={() => updateShortcut(command.id, "")}>
+                      {props.t("common.reset")}
+                    </button>
+                  ) : null}
+                  {conflicts.length ? <small className="setting-shortcut-conflict">{props.t("settings.conflictsWith", { titles: conflicts.join(", ") })}</small> : null}
+                </label>
+              );
+            })}
+          </div>
+        ) : null}
       </div>
       <div className="editor-settings-actions">
         <button
@@ -3903,6 +4144,7 @@ function SelectionToolbox(props: {
     props.linkCount ? props.t("selection.wireCount", { count: props.linkCount }) : ""
   ].filter(Boolean).join(", ");
 
+  const activeColor = normalizeColorInput(props.activeCommentColor ?? fallbackCommentColor);
   return (
     <div
       className="selection-toolbox"
@@ -3953,23 +4195,56 @@ function SelectionToolbox(props: {
         <CircleDot size={14} />
       </button>
       {props.commentCount ? (
-        <span className="selection-toolbox-colors" aria-label={props.t("selection.commentColors")}>
-          {commentColorPalette.slice(0, 4).map((color) => (
-            <button
-              key={color}
-              type="button"
-              className={props.activeCommentColor === color ? "comment-swatch active" : "comment-swatch"}
-              style={{ background: color }}
-              title={props.t("selection.setCommentColor", { color })}
-              onClick={() => props.onCommentColor(color)}
-            />
-          ))}
-        </span>
+        <CommentColorControls
+          colors={commentColorPalette.slice(0, 4)}
+          activeColor={activeColor}
+          t={props.t}
+          labelKey="selection.commentColors"
+          titleKey="selection.setCommentColor"
+          onChange={props.onCommentColor}
+        />
       ) : null}
       <button type="button" title={props.t("selection.delete")} onClick={props.onDelete}>
         <Trash2 size={14} />
       </button>
     </div>
+  );
+}
+
+function CommentColorControls(props: {
+  colors: string[];
+  activeColor: string;
+  t: Translator;
+  labelKey: string;
+  titleKey: string;
+  onChange(color: string): void;
+}): JSX.Element {
+  const activeColor = normalizeColorInput(props.activeColor);
+  return (
+    <span className="comment-color-row" aria-label={props.t(props.labelKey)}>
+      {props.colors.map((color) => {
+        const normalizedColor = normalizeColorInput(color);
+        return (
+          <button
+            key={normalizedColor}
+            type="button"
+            className={normalizedColor === activeColor ? "comment-swatch active" : "comment-swatch"}
+            style={{ background: normalizedColor, "--comment-color": normalizedColor } as CSSProperties}
+            title={props.t(props.titleKey, { color: normalizedColor })}
+            onClick={() => props.onChange(normalizedColor)}
+          />
+        );
+      })}
+      <label className="comment-swatch comment-swatch-custom" title={props.t("comment.customColor")} style={{ "--comment-color": activeColor } as CSSProperties}>
+        <input
+          type="color"
+          value={activeColor}
+          aria-label={props.t("comment.customColor")}
+          onChange={(event) => props.onChange(event.target.value)}
+        />
+        <span style={{ background: activeColor }} />
+      </label>
+    </span>
   );
 }
 
@@ -4275,6 +4550,7 @@ function MarqueeRect(props: { marquee: MarqueeSelection }): JSX.Element {
 
 function NodeCreationPanel(props: {
   position: Point;
+  size: NodePanelSize;
   sourcePort?: DragPort;
   search: string;
   categories: TemplateCategorySummary[];
@@ -4290,12 +4566,15 @@ function NodeCreationPanel(props: {
   onActiveIndexChange(index: number): void;
   onPick(template: BlueprintNodeTemplate): void;
   onToggleFavorite(templateId: string): void;
+  onResize(size: NodePanelSize): void;
   onClose(): void;
 }): JSX.Element {
   const activeCandidate = props.candidates[props.activeIndex] ?? props.candidates[0];
   const activeCompatiblePort = props.sourcePort && activeCandidate ? compatiblePortsForTemplate(activeCandidate, props.sourcePort)[0] : undefined;
   const emptyState = nodeCreationEmptyState(props.search, props.activeCategory, props.sourcePort, props.t);
-  const panelPosition = clampedNodePanelPosition(props.position, Boolean(props.sourcePort));
+  const panelSize = clampedNodePanelSize(props.size, Boolean(props.sourcePort));
+  const panelPosition = clampedNodePanelPosition(props.position, Boolean(props.sourcePort), panelSize);
+  const resizeRef = useRef<{ pointerId: number; startX: number; startY: number; size: NodePanelSize } | undefined>();
   const moveActive = (delta: number) => {
     if (!props.candidates.length) {
       return;
@@ -4310,12 +4589,43 @@ function NodeCreationPanel(props: {
     const nextCategory = props.categories[(currentIndex + delta + props.categories.length) % props.categories.length];
     props.onCategoryChange(nextCategory.id);
   };
+  const startResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    capturePointer(event.currentTarget, event.pointerId);
+    resizeRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      size: panelSize
+    };
+  };
+  const resizePanel = (event: React.PointerEvent<HTMLDivElement>) => {
+    const resizing = resizeRef.current;
+    if (!resizing || resizing.pointerId !== event.pointerId) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    props.onResize(clampedNodePanelSize({
+      width: resizing.size.width + event.clientX - resizing.startX,
+      height: resizing.size.height + event.clientY - resizing.startY
+    }, Boolean(props.sourcePort)));
+  };
+  const stopResize = (event: React.PointerEvent<HTMLDivElement | HTMLButtonElement>) => {
+    if (resizeRef.current?.pointerId === event.pointerId) {
+      resizeRef.current = undefined;
+    }
+  };
 
   return (
     <div
       className={props.sourcePort ? "node-panel pin-aware" : "node-panel"}
-      style={{ left: panelPosition.x, top: panelPosition.y }}
+      style={{ left: panelPosition.x, top: panelPosition.y, width: panelSize.width, height: panelSize.height }}
       onPointerDown={(event) => event.stopPropagation()}
+      onPointerMove={resizePanel}
+      onPointerUp={stopResize}
+      onPointerCancel={stopResize}
       onWheel={isolateOverlayEvent}
       onKeyDown={(event) => {
         if (event.key === "ArrowDown") {
@@ -4428,21 +4738,42 @@ function NodeCreationPanel(props: {
           )}
         </div>
       </div>
+      <button
+        type="button"
+        className="node-panel-resize"
+        title={props.t("nodeCreation.resizePanel")}
+        aria-label={props.t("nodeCreation.resizePanel")}
+        onPointerDown={startResize}
+        onPointerUp={stopResize}
+        onPointerCancel={stopResize}
+      />
     </div>
   );
 }
 
-function clampedNodePanelPosition(position: Point, pinAware: boolean): Point {
+function clampedNodePanelSize(size: NodePanelSize, pinAware: boolean): NodePanelSize {
   const margin = 20;
   const viewportWidth = typeof window === "undefined" ? 1024 : window.innerWidth;
   const viewportHeight = typeof window === "undefined" ? 768 : window.innerHeight;
-  const width = Math.min(680, Math.max(0, viewportWidth - margin * 2));
-  const height = pinAware ? 350 : 316;
+  const minWidth = 560;
+  const minHeight = pinAware ? 350 : 316;
+  const maxWidth = Math.max(minWidth, viewportWidth - margin * 2);
+  const maxHeight = Math.max(minHeight, viewportHeight - margin * 2);
+  return {
+    width: Math.round(clamp(size.width, minWidth, maxWidth)),
+    height: Math.round(clamp(size.height, minHeight, maxHeight))
+  };
+}
+
+function clampedNodePanelPosition(position: Point, pinAware: boolean, size: NodePanelSize = clampedNodePanelSize(defaultNodePanelSize, pinAware)): Point {
+  const margin = 20;
+  const viewportWidth = typeof window === "undefined" ? 1024 : window.innerWidth;
+  const viewportHeight = typeof window === "undefined" ? 768 : window.innerHeight;
   const x = Number.isFinite(position.x) ? position.x : margin;
   const y = Number.isFinite(position.y) ? position.y : margin;
   return {
-    x: clamp(x, margin, Math.max(margin, viewportWidth - width - margin)),
-    y: clamp(y, margin, Math.max(margin, viewportHeight - height - margin))
+    x: clamp(x, margin, Math.max(margin, viewportWidth - size.width - margin)),
+    y: clamp(y, margin, Math.max(margin, viewportHeight - size.height - margin))
   };
 }
 
@@ -4551,7 +4882,7 @@ function CommentInspector(props: {
   onSizeChange(comment: BlueprintCommentBox, size: { width: number; height: number }): void;
   onColorChange(comment: BlueprintCommentBox, color: string): void;
 }): JSX.Element {
-  const color = props.comment.color ?? commentColorPalette[0];
+  const color = normalizeColorInput(props.comment.color ?? fallbackCommentColor);
   return (
     <div className="inspector-body">
       <div className="node-summary">
@@ -4586,18 +4917,14 @@ function CommentInspector(props: {
         </label>
         <div className="field">
           <span>{props.t("inspector.color")}</span>
-          <div className="comment-color-row">
-            {commentColorPalette.map((candidate) => (
-              <button
-                key={candidate}
-                type="button"
-                className={candidate.toLowerCase() === color.toLowerCase() ? "comment-swatch active" : "comment-swatch"}
-                style={{ background: candidate }}
-                title={props.t("inspector.setCommentColor", { color: candidate })}
-                onClick={() => props.onColorChange(props.comment, candidate)}
-              />
-            ))}
-          </div>
+          <CommentColorControls
+            colors={commentColorPalette}
+            activeColor={color}
+            t={props.t}
+            labelKey="selection.commentColors"
+            titleKey="inspector.setCommentColor"
+            onChange={(nextColor) => props.onColorChange(props.comment, nextColor)}
+          />
         </div>
       </section>
     </div>
@@ -4703,6 +5030,52 @@ function DiagnosticStrip(props: {
         ? props.t("common.errors", { count: props.issues.filter((issue) => issue.severity === "error").length })
         : props.t("common.warnings", { count: props.issues.length })}
     </span>
+  );
+}
+
+function RunLogIssueList(props: {
+  issues: ValidationIssue[];
+  t: Translator;
+  onIssueFocus(issue: ValidationIssue): void;
+}): JSX.Element {
+  const [copiedKey, setCopiedKey] = useState<string | undefined>();
+  const [failedKey, setFailedKey] = useState<string | undefined>();
+  const copyIssue = async (issue: ValidationIssue) => {
+    const key = issueKey(issue);
+    try {
+      await writeTextToClipboard(formatDiagnosticCopyText(issue));
+      setCopiedKey(key);
+      setFailedKey(undefined);
+    } catch {
+      setCopiedKey(undefined);
+      setFailedKey(key);
+    }
+  };
+
+  return (
+    <div className="run-log-list">
+      {props.issues.map((issue) => {
+        const key = issueKey(issue);
+        const location = diagnosticLocationText(issue);
+        const copyTitle = failedKey === key
+          ? props.t("runPanel.copyLogFailed")
+          : copiedKey === key
+            ? props.t("runPanel.copyLogCopied")
+            : props.t("runPanel.copyLog");
+        return (
+          <div key={key} className={`run-log-issue ${issue.severity}`}>
+            <button type="button" className="run-log-issue-focus" onClick={() => props.onIssueFocus(issue)}>
+              <strong>{issue.severity}</strong>
+              <span>{issue.message}</span>
+              {location ? <small>{location}</small> : null}
+            </button>
+            <button type="button" className="run-log-copy" title={copyTitle} aria-label={copyTitle} onClick={() => copyIssue(issue)}>
+              <Copy size={13} />
+            </button>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -5601,6 +5974,14 @@ function diagnosticLocationText(issue: ValidationIssue): string {
     issue.linkId ? `link ${issue.linkId}` : "",
     issue.portId ? `port ${issue.portId}` : ""
   ].filter(Boolean).join(" · ");
+}
+
+function formatDiagnosticCopyText(issue: ValidationIssue): string {
+  return [
+    issue.severity,
+    issue.message,
+    diagnosticLocationText(issue)
+  ].filter(Boolean).join("\n");
 }
 
 function formatRuntimeText(stdout: string, stderr: string, fallback: string): string {
@@ -6905,6 +7286,10 @@ function shortcutPrefsEqual(left: Record<string, string>, right: Record<string, 
   const leftEntries = Object.entries(left);
   const rightEntries = Object.entries(right);
   return leftEntries.length === rightEntries.length && leftEntries.every(([key, value]) => right[key] === value);
+}
+
+function mainToolbarActionsEqual(left: MainToolbarActionId[], right: MainToolbarActionId[]): boolean {
+  return left.length === right.length && left.every((actionId, index) => right[index] === actionId);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

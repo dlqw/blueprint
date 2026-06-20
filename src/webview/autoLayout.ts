@@ -15,8 +15,10 @@ export const HEADER_HEIGHT = 38;
 export const PORT_ROW_HEIGHT = 30;
 export const PORT_SECTION_PADDING_Y = 5;
 export const PORT_SECTION_MIN_HEIGHT = 32;
-export const HUB_WIDTH = 46;
+export const HUB_WIDTH = 72;
 export const HUB_HEIGHT = 36;
+export const HUB_PORT_INSET = 16;
+export const PORT_PIN_INSET = 12;
 
 const columnGap = 460;
 const rowGap = 70;
@@ -69,7 +71,7 @@ export function renderedNodeHeight(template: BlueprintNodeTemplate | undefined, 
 
 export function portLocalPoint(template: BlueprintNodeTemplate, port: BlueprintPortDefinition): Point {
   if (isRoutingHubTemplate(template)) {
-    return { x: port.direction === "input" ? 0 : HUB_WIDTH, y: HUB_HEIGHT / 2 };
+    return { x: port.direction === "input" ? HUB_PORT_INSET : HUB_WIDTH - HUB_PORT_INSET, y: HUB_HEIGHT / 2 };
   }
 
   const isControl = port.flowKind === "control";
@@ -80,7 +82,7 @@ export function portLocalPoint(template: BlueprintNodeTemplate, port: BlueprintP
   const controlRows = Math.max(template.controlInputs.length, template.controlOutputs.length);
   const sectionTop = isControl ? HEADER_HEIGHT : HEADER_HEIGHT + portSectionHeight(controlRows);
   return {
-    x: port.direction === "input" ? 0 : NODE_WIDTH,
+    x: port.direction === "input" ? PORT_PIN_INSET : NODE_WIDTH - PORT_PIN_INSET,
     y: sectionTop + PORT_SECTION_PADDING_Y + PORT_ROW_HEIGHT / 2 + index * PORT_ROW_HEIGHT
   };
 }

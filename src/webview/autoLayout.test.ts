@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { getBuiltinTemplates } from "../shared/builtins";
 import { BlueprintGraph, BlueprintNodeInstance } from "../shared/blueprint";
 import { getEffectiveTemplateForNode } from "../shared/graph";
-import { applyAutoLayout, NODE_WIDTH, portLocalPoint, renderedNodeHeight, renderedNodeWidth } from "./autoLayout";
+import { applyAutoLayout, HUB_HEIGHT, HUB_PORT_INSET, HUB_WIDTH, NODE_WIDTH, PORT_PIN_INSET, portLocalPoint, renderedNodeHeight, renderedNodeWidth } from "./autoLayout";
 
 describe("applyAutoLayout", () => {
   it("lays out a large linear graph left-to-right without overlapping regular nodes", () => {
@@ -54,19 +54,30 @@ describe("applyAutoLayout", () => {
     }
   });
 
-  it("aligns port geometry to node edges and rendered port sections", () => {
+  it("aligns port geometry to visible pins and rendered port sections", () => {
     const templates = getBuiltinTemplates();
     const log = templates.find((template) => template.id === "builtin.debug.log");
     const branch = templates.find((template) => template.id === "builtin.control.branch");
     expect(log).toBeDefined();
     expect(branch).toBeDefined();
 
-    expect(portLocalPoint(log!, log!.controlInputs[0])).toEqual({ x: 0, y: 58 });
-    expect(portLocalPoint(log!, log!.controlOutputs[0])).toEqual({ x: NODE_WIDTH, y: 58 });
-    expect(portLocalPoint(log!, log!.inputs[0])).toEqual({ x: 0, y: 98 });
-    expect(portLocalPoint(branch!, branch!.controlOutputs[0])).toEqual({ x: NODE_WIDTH, y: 58 });
-    expect(portLocalPoint(branch!, branch!.controlOutputs[1])).toEqual({ x: NODE_WIDTH, y: 88 });
-    expect(portLocalPoint(branch!, branch!.inputs[0])).toEqual({ x: 0, y: 128 });
+    expect(portLocalPoint(log!, log!.controlInputs[0])).toEqual({ x: PORT_PIN_INSET, y: 58 });
+    expect(portLocalPoint(log!, log!.controlOutputs[0])).toEqual({ x: NODE_WIDTH - PORT_PIN_INSET, y: 58 });
+    expect(portLocalPoint(log!, log!.inputs[0])).toEqual({ x: PORT_PIN_INSET, y: 98 });
+    expect(portLocalPoint(branch!, branch!.controlOutputs[0])).toEqual({ x: NODE_WIDTH - PORT_PIN_INSET, y: 58 });
+    expect(portLocalPoint(branch!, branch!.controlOutputs[1])).toEqual({ x: NODE_WIDTH - PORT_PIN_INSET, y: 88 });
+    expect(portLocalPoint(branch!, branch!.inputs[0])).toEqual({ x: PORT_PIN_INSET, y: 128 });
+  });
+
+  it("keeps routing hub ports inside the compact hub body", () => {
+    const templates = getBuiltinTemplates();
+    const hub = templates.find((template) => template.id === "builtin.routing.dataHub");
+    expect(hub).toBeDefined();
+
+    expect(renderedNodeWidth(hub)).toBe(HUB_WIDTH);
+    expect(renderedNodeHeight(hub)).toBe(HUB_HEIGHT);
+    expect(portLocalPoint(hub!, hub!.inputs[0])).toEqual({ x: HUB_PORT_INSET, y: HUB_HEIGHT / 2 });
+    expect(portLocalPoint(hub!, hub!.outputs[0])).toEqual({ x: HUB_WIDTH - HUB_PORT_INSET, y: HUB_HEIGHT / 2 });
   });
 });
 
