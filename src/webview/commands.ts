@@ -1,3 +1,5 @@
+import { fuzzyTextMatches } from "./fuzzySearch";
+
 export interface EditorCommand {
   id: string;
   title: string;
@@ -57,14 +59,7 @@ export function normalizeShortcutSpec(shortcut: unknown): string | undefined {
 }
 
 export function commandMatchesQuery(command: EditorCommand, query: string): boolean {
-  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  if (!tokens.length) {
-    return true;
-  }
-  const haystack = [command.title, command.category, command.id, ...(command.keywords ?? []), ...commandShortcuts(command)]
-    .join(" ")
-    .toLowerCase();
-  return tokens.every((token) => haystack.includes(token));
+  return fuzzyTextMatches([command.title, command.category, command.id, ...(command.keywords ?? []), ...commandShortcuts(command)], query);
 }
 
 export function shortcutMatchesEvent(shortcut: string, event: KeyboardEvent): boolean {

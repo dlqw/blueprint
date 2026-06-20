@@ -87,6 +87,8 @@ describe("Blueprint webview App", () => {
     const search = await screen.findByPlaceholderText("搜索节点模板");
     fireEvent.change(search, { target: { value: "日志" } });
     expect((await screen.findAllByText("日志")).length).toBeGreaterThan(0);
+    fireEvent.change(search, { target: { value: "rizhi" } });
+    expect((await screen.findAllByText("日志")).length).toBeGreaterThan(0);
     fireEvent.change(search, { target: { value: "Log" } });
     expect((await screen.findAllByText("日志")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Esc" }));
@@ -856,8 +858,8 @@ describe("Blueprint webview App", () => {
   });
 
   it("finds and frames nodes in the current graph", async () => {
-    const { container } = renderAppWithGraph(sampleGraph());
-    await screen.findAllByText("Function Entry");
+    const { container } = renderAppWithGraph(sampleGraph(), { defaultLanguage: false });
+    await screen.findAllByText("函数入口");
 
     const canvas = container.querySelector(".canvas") as HTMLElement;
     expect(canvas).toBeTruthy();
@@ -876,11 +878,11 @@ describe("Blueprint webview App", () => {
     fireEvent.keyDown(window, { key: "f", ctrlKey: true });
     const findInput = findNodeDialogInput();
     await waitFor(() => expect(findInput).toHaveFocus());
-    fireEvent.change(findInput, { target: { value: "log" } });
+    fireEvent.change(findInput, { target: { value: "rizhi" } });
     fireEvent.keyDown(findInput, { key: "Enter" });
 
     await waitFor(() => {
-      expect(container.querySelector(".node.selected .node-header strong")?.textContent).toBe("Log");
+      expect(container.querySelector(".node.selected .node-header strong")?.textContent).toBe("日志");
       const focused = postedMessages.filter((message) => message.type === "graphChanged").at(-1);
       expect(focused?.type).toBe("graphChanged");
       expect(focused?.graph.layout.viewport.x).not.toBe(0);
@@ -888,7 +890,7 @@ describe("Blueprint webview App", () => {
 
     window.dispatchEvent(new MessageEvent("message", { data: { type: "focusNode", nodeId: "entry" } }));
     await waitFor(() => {
-      expect(container.querySelector(".node.selected .node-header strong")?.textContent).toBe("Function Entry");
+      expect(container.querySelector(".node.selected .node-header strong")?.textContent).toBe("函数入口");
     });
   });
 

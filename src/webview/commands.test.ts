@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyShortcutPrefs, EditorCommand, shortcutConflictTitles, shortcutMatchesEvent } from "./commands";
+import { applyShortcutPrefs, commandMatchesQuery, EditorCommand, shortcutConflictTitles, shortcutMatchesEvent } from "./commands";
 
 const commands: EditorCommand[] = [
   { id: "workbench.commandPalette", title: "Show Command Palette", category: "Workbench", shortcut: "Ctrl+K", run: () => undefined },
@@ -22,6 +22,13 @@ describe("commands", () => {
   it("reports shortcut conflicts against default and customized commands", () => {
     expect(shortcutConflictTitles(commands, "graph.duplicate", "Ctrl+K", {})).toEqual(["Show Command Palette"]);
     expect(shortcutConflictTitles(commands, "graph.delete", "Ctrl+Alt+D", { "graph.duplicate": "Ctrl+Alt+D" })).toEqual(["Duplicate Selection"]);
+  });
+
+  it("matches command titles with pinyin queries", () => {
+    const command: EditorCommand = { id: "graph.findNode", title: "查找节点", category: "图", run: () => undefined };
+
+    expect(commandMatchesQuery(command, "chazhao")).toBe(true);
+    expect(commandMatchesQuery(command, "czjd")).toBe(true);
   });
 });
 

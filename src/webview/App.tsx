@@ -99,6 +99,7 @@ import {
   type ToolbarAlignment
 } from "./editorPrefs";
 import { createEditorHostClient } from "./editorHostClient";
+import { fuzzySearchTokens, fuzzyTextMatches, fuzzyValuesMatchTokens, scoreFuzzySearchValues } from "./fuzzySearch";
 import {
   alignGraphNodes,
   cleanupRoutingHubs,
@@ -5668,11 +5669,7 @@ function PortEditor(props: { port: BlueprintPortDefinition; value: unknown; onCh
 }
 
 function findNodesInGraph(graph: BlueprintGraph, templates: BlueprintNodeTemplate[], query: string, t: Translator, locale: Locale): NodeFindResult[] {
-  const tokens = query
-    .toLowerCase()
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter(Boolean);
+  const tokens = fuzzySearchTokens(query);
 
   return graph.nodes
     .map((node, index) => {
@@ -5874,18 +5871,26 @@ function filterOutlineNodes(
   query: string,
   locale: Locale
 ): Array<{ node: BlueprintNodeInstance; template: BlueprintNodeTemplate | undefined }> {
-  const tokens = outlineTokens(query);
+  const tokens = fuzzySearchTokens(query);
   if (!tokens.length) {
     return entries;
   }
   return entries.filter(({ node, template }) =>
-    tokens.every((token) => {
-      const templateText = localizedTemplateText(template, locale);
-      return [node.id, node.templateId, template?.id, templateText.name, template?.name, templateText.creationPath, template?.creationPath]
-        .filter(Boolean)
-        .some((value) => value!.toLowerCase().includes(token));
-    })
+    fuzzyValuesMatchTokens(outlineNodeSearchValues(node, template, locale), tokens)
   );
+}
+
+function outlineNodeSearchValues(node: BlueprintNodeInstance, template: BlueprintNodeTemplate | undefined, locale: Locale): Array<string | undefined> {
+  const templateText = localizedTemplateText(template, locale);
+  return [
+    node.id,
+    node.templateId,
+    template?.id,
+    templateText.name,
+    template?.name,
+    templateText.creationPath,
+    template?.creationPath
+  ];
 }
 
 function groupOutlineNodesByCategory(
@@ -5902,55 +5907,19 @@ function groupOutlineNodesByCategory(
 }
 
 function filterOutlineComments(comments: BlueprintCommentBox[], query: string): BlueprintCommentBox[] {
-  const tokens = outlineTokens(query);
+  const tokens = fuzzySearchTokens(query);
   if (!tokens.length) {
     return comments;
   }
-  return comments.filter((comment) =>
-    tokens.every((token) => [comment.id, comment.title].filter(Boolean).some((value) => value!.toLowerCase().includes(token)))
-  );
+  return comments.filter((comment) => fuzzyValuesMatchTokens([comment.id, comment.title], tokens));
 }
 
 function outlineTokens(query: string): string[] {
-  return query
-    .toLowerCase()
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter(Boolean);
+  return fuzzySearchTokens(query);
 }
 
 function scoreFindResult(values: Array<{ label: string; value?: string }>, tokens: string[]): { score: number; matchLabel?: string } {
-  if (!tokens.length) {
-    return { score: 1 };
-  }
-  const normalized = values
-    .filter((entry): entry is { label: string; value: string } => Boolean(entry.value))
-    .map((entry) => ({ ...entry, normalizedValue: entry.value.toLowerCase() }));
-  let score = 0;
-  let bestMatch: { label: string; value: string; score: number } | undefined;
-  for (const token of tokens) {
-    const tokenMatch = normalized.reduce<{ label: string; value: string; score: number } | undefined>((best, entry) => {
-      let entryScore = 0;
-      if (entry.normalizedValue === token) {
-        entryScore = 40;
-      }
-      if (entry.normalizedValue.startsWith(token)) {
-        entryScore = Math.max(entryScore, 24);
-      }
-      if (entry.normalizedValue.includes(token)) {
-        entryScore = Math.max(entryScore, 10);
-      }
-      return entryScore > (best?.score ?? 0) ? { label: entry.label, value: entry.value, score: entryScore } : best;
-    }, undefined);
-    if (!tokenMatch) {
-      return { score: 0 };
-    }
-    score += tokenMatch.score;
-    if (tokenMatch.score > (bestMatch?.score ?? 0)) {
-      bestMatch = tokenMatch;
-    }
-  }
-  return { score, matchLabel: bestMatch ? `${bestMatch.label}: ${bestMatch.value}` : undefined };
+  return scoreFuzzySearchValues(values, tokens);
 }
 
 function issueKey(issue: ValidationIssue): string {
@@ -6301,11 +6270,7 @@ function runtimeComparisonStatusText(item: RuntimeRunComparisonItem, t?: Transla
 }
 
 function runtimeTraceMatchesQuery(trace: RuntimeTraceEvent, query: string, traceLabel?: RuntimeTraceLabeler): boolean {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) {
-    return true;
-  }
-  return [
+  return fuzzyTextMatches([
     trace.graphId,
     trace.nodeId,
     trace.nodeName,
@@ -6313,7 +6278,7 @@ function runtimeTraceMatchesQuery(trace: RuntimeTraceEvent, query: string, trace
     trace.status,
     trace.message,
     runtimeTraceContextText(trace)
-  ].filter(Boolean).join(" ").toLowerCase().includes(normalized);
+  ], query);
 }
 
 async function writeTextToClipboard(text: string): Promise<void> {
@@ -6424,16 +6389,16 @@ function applyRuntimeTraceStatus(
 }
 
 function rankedTemplates(templates: BlueprintNodeTemplate[], search: string, sourcePort: DragPort | undefined, prefs: NodePalettePrefs, locale: Locale): BlueprintNodeTemplate[] {
-  const normalized = search.trim().toLowerCase();
+  const tokens = fuzzySearchTokens(search);
   return templates
     .filter((template) => !sourcePort || templateHasCompatiblePort(template, sourcePort))
     .filter((template) => {
-      if (!normalized) {
+      if (!tokens.length) {
         return true;
       }
-      return localizedTemplateSearchText(template, locale).includes(normalized);
+      return fuzzyValuesMatchTokens(templateSearchValues(template, locale), tokens);
     })
-    .map((template, index) => ({ template, index, score: templateScore(template, normalized, sourcePort, prefs, locale) }))
+    .map((template, index) => ({ template, index, score: templateScore(template, tokens, sourcePort, prefs, locale) }))
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .map((entry) => entry.template);
 }
@@ -6536,18 +6501,17 @@ function localizedManifestText(text: Record<string, string | undefined> | undefi
 
 function templateRegistryTemplates(packages: TemplateRegistryPackageSummary[], packageId: string, query: string, t: Translator, locale: Locale): BlueprintNodeTemplate[] {
   const templates = packages.find((summary) => summary.id === packageId)?.templates ?? [];
-  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const tokens = fuzzySearchTokens(query);
   return templates
     .filter((template) => {
       if (!tokens.length) {
         return true;
       }
-      const haystack = [
+      return fuzzyValuesMatchTokens([
         localizedTemplateSearchText(template, locale),
         template.bodyKind,
         templatePackageName(template, t)
-      ].join(" ").toLowerCase();
-      return tokens.every((token) => haystack.includes(token));
+      ], tokens);
     })
     .sort((left, right) => {
       const leftText = localizedTemplateText(left, locale);
@@ -6684,7 +6648,7 @@ function pinCreationTargetTitle(
   return `${t("nodeCreation.fromPin", { direction: sourceDirection, flowKind: sourcePort.flowKind })} ${sourcePort.type} ${t("nodeCreation.willConnectTo", { direction: targetDirection, port: targetPortText.name })}: ${targetPort.type}`;
 }
 
-function templateScore(template: BlueprintNodeTemplate, normalizedSearch: string, sourcePort: DragPort | undefined, prefs: NodePalettePrefs, locale: Locale): number {
+function templateScore(template: BlueprintNodeTemplate, tokens: string[], sourcePort: DragPort | undefined, prefs: NodePalettePrefs, locale: Locale): number {
   let score = 0;
   const favoriteIndex = prefs.favoriteTemplateIds.indexOf(template.id);
   if (favoriteIndex >= 0) {
@@ -6697,22 +6661,33 @@ function templateScore(template: BlueprintNodeTemplate, normalizedSearch: string
   if (sourcePort) {
     score += compatiblePortScore(template, sourcePort);
   }
-  if (normalizedSearch) {
+  if (tokens.length) {
     const templateText = localizedTemplateText(template, locale);
-    const name = templateText.name.toLowerCase();
-    const path = templateText.creationPath.toLowerCase();
-    if (name === normalizedSearch) {
-      score += 120;
-    } else if (name.startsWith(normalizedSearch)) {
-      score += 90;
-    } else if (name.includes(normalizedSearch)) {
-      score += 60;
-    }
-    if (path.includes(normalizedSearch)) {
-      score += 25;
-    }
+    score += scoreFuzzySearchValues([
+      { label: "name", value: templateText.name },
+      { label: "name", value: template.name },
+      { label: "path", value: templateText.creationPath },
+      { label: "path", value: template.creationPath },
+      { label: "search", value: localizedTemplateSearchText(template, locale) }
+    ], tokens).score;
   }
   return score;
+}
+
+function templateSearchValues(template: BlueprintNodeTemplate, locale: Locale): string[] {
+  const templateText = localizedTemplateText(template, locale);
+  return [
+    localizedTemplateSearchText(template, locale),
+    template.id,
+    template.name,
+    template.creationPath,
+    template.description,
+    templateText.name,
+    templateText.creationPath,
+    templateText.description,
+    template.bodyKind,
+    template.bodyRef
+  ];
 }
 
 function compatiblePortScore(template: BlueprintNodeTemplate, sourcePort: DragPort): number {
