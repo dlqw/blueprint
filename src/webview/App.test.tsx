@@ -1869,6 +1869,42 @@ describe("Blueprint webview App", () => {
     expect(await screen.findByText(/Run failed: Run canceled\./)).toBeInTheDocument();
   });
 
+  it("keeps the graph read-only while a run is active", async () => {
+    const { container } = renderAppWithGraph(sampleGraph());
+    await screen.findAllByText("Function Entry");
+
+    fireEvent.click(screen.getByTitle(/run graph/i));
+    expect(screen.getByTitle(/cancel run/i)).toBeInTheDocument();
+    const graphChangeCount = postedMessages.filter((message) => message.type === "graphChanged").length;
+
+    fireEvent.keyDown(window, { key: "Delete", code: "Delete" });
+    expect(postedMessages.filter((message) => message.type === "graphChanged")).toHaveLength(graphChangeCount);
+    expect(container.querySelector('[data-node-id="entry"]')).toBeTruthy();
+
+    const canvas = container.querySelector(".canvas") as HTMLElement;
+    expect(canvas).toBeTruthy();
+    fireEvent.contextMenu(canvas, { clientX: 320, clientY: 220 });
+    expect(screen.queryByPlaceholderText("Search node templates")).not.toBeInTheDocument();
+
+    const entryNode = container.querySelector('[data-node-id="entry"]') as HTMLElement;
+    firePointer(entryNode, "pointerdown", { pointerId: 21, clientX: 220, clientY: 160, button: 0 });
+    firePointer(canvas, "pointermove", { pointerId: 21, clientX: 320, clientY: 260, button: 0 });
+    firePointer(canvas, "pointerup", { pointerId: 21, clientX: 320, clientY: 260, button: 0 });
+    expect(postedMessages.filter((message) => message.type === "graphChanged")).toHaveLength(graphChangeCount);
+
+    const logNode = container.querySelector('[data-node-id="log1"]') as HTMLElement;
+    firePointer(logNode, "pointerdown", { pointerId: 22, clientX: 480, clientY: 160, button: 0 });
+    expect(screen.getByDisplayValue("Hello Blueprint")).toBeDisabled();
+
+    fireEvent.contextMenu(logNode, { clientX: 480, clientY: 160 });
+    expect(await screen.findByTitle("Duplicate node selection")).toBeDisabled();
+    expect(screen.getByTitle("Delete node selection")).toBeDisabled();
+
+    fireEvent.keyDown(window, { key: "a", code: "KeyA" });
+    expect(screen.queryByPlaceholderText("Search node templates")).not.toBeInTheDocument();
+    expect(postedMessages.filter((message) => message.type === "graphChanged")).toHaveLength(graphChangeCount);
+  });
+
   it("renders queued run counts from runtime queue status messages", async () => {
     renderAppWithGraph(sampleGraph());
     await screen.findAllByText("Function Entry");

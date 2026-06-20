@@ -483,6 +483,7 @@ export function App(props: AppProps = {}): JSX.Element {
   const actionBarPlacement = editorPrefs.actionBarPlacement;
   const toolbarAlignment = editorPrefs.toolbarAlignment;
   const t = useMemo(() => createTranslator(editorPrefs.language), [editorPrefs.language]);
+  const graphReadOnly = isRuntimeRunning;
   useEffect(() => {
     if (externalDockPanels) {
       setLeftPanelOpen(false);
@@ -694,6 +695,9 @@ export function App(props: AppProps = {}): JSX.Element {
 
   const commitGraph = useCallback(
     (next: BlueprintGraph, previousOverride?: BlueprintGraph) => {
+      if (graphReadOnly) {
+        return;
+      }
       graphRef.current = next;
       setGraph((current) => {
         const previous = previousOverride ?? current;
@@ -704,13 +708,27 @@ export function App(props: AppProps = {}): JSX.Element {
         return next;
       });
     },
-    [hostClient]
+    [graphReadOnly, hostClient]
   );
 
-  const updateLocalGraph = useCallback((next: BlueprintGraph) => {
+  const updateLocalGraph = useCallback((next: BlueprintGraph, options: { allowReadOnly?: boolean } = {}) => {
+    if (graphReadOnly && !options.allowReadOnly) {
+      return;
+    }
     graphRef.current = next;
     setGraph(next);
-  }, []);
+  }, [graphReadOnly]);
+
+  const applyViewportGraph = useCallback(
+    (next: BlueprintGraph, previousOverride?: BlueprintGraph) => {
+      if (graphReadOnly) {
+        updateLocalGraph(next, { allowReadOnly: true });
+        return;
+      }
+      commitGraph(next, previousOverride);
+    },
+    [commitGraph, graphReadOnly, updateLocalGraph]
+  );
 
   const restoreGraph = useCallback((next: BlueprintGraph) => {
     graphRef.current = next;
@@ -733,9 +751,9 @@ export function App(props: AppProps = {}): JSX.Element {
       const bounds = nodeBounds(currentGraph, templatesRef.current, node);
       const rect = canvasRef.current?.getBoundingClientRect();
       const size = safeCanvasSize(rect, { width: 1, height: 1 });
-      commitGraph(withFittedViewport(currentGraph, bounds, size, 160, { min: 0.55, max: 1.35 }));
+      applyViewportGraph(withFittedViewport(currentGraph, bounds, size, 160, { min: 0.55, max: 1.35 }));
     },
-    [commitGraph]
+    [applyViewportGraph]
   );
 
   const focusLinkById = useCallback(
@@ -758,9 +776,9 @@ export function App(props: AppProps = {}): JSX.Element {
       const bounds = boundsForNodes(currentGraph, templatesRef.current, linkedNodes);
       const rect = canvasRef.current?.getBoundingClientRect();
       const size = safeCanvasSize(rect, { width: 1, height: 1 });
-      commitGraph(withFittedViewport(currentGraph, bounds, size, 180, { min: 0.45, max: 1.25 }));
+      applyViewportGraph(withFittedViewport(currentGraph, bounds, size, 180, { min: 0.45, max: 1.25 }));
     },
-    [commitGraph]
+    [applyViewportGraph]
   );
 
   const focusIssue = useCallback(
@@ -791,6 +809,30 @@ export function App(props: AppProps = {}): JSX.Element {
     setNodeFindDialogOpen(false);
     dispatchCanvasInteraction({ type: "cancel" });
   }, []);
+
+  useEffect(() => {
+    if (!graphReadOnly) {
+      return;
+    }
+    const previousGraph = interactionStartGraph.current;
+    if (previousGraph) {
+      updateLocalGraph(previousGraph, { allowReadOnly: true });
+    }
+    interactionStartGraph.current = undefined;
+    marqueeRef.current = undefined;
+    setDragPort(undefined);
+    setDraggingNodes(undefined);
+    setDraggingComments(undefined);
+    setResizingComment(undefined);
+    setPanning(undefined);
+    setMarquee(undefined);
+    setNodePanel(emptyPanel);
+    setWireMenu(undefined);
+    setNodeMenu(undefined);
+    setCommentMenu(undefined);
+    setPortMenu(undefined);
+    dispatchCanvasInteraction({ type: "cancel" });
+  }, [graphReadOnly, updateLocalGraph]);
 
   useEffect(() => {
     const listener = (event: MessageEvent<HostToEditorMessage>) => {
@@ -926,14 +968,14 @@ export function App(props: AppProps = {}): JSX.Element {
       const normalized = normalizeBreakpoints(next);
       setBreakpoints(normalized);
       hostClient.setState({ ...recordFromUnknown(hostClient.getState()), breakpoints: normalized });
-      if (options.commitToGraph) {
+      if (options.commitToGraph && !graphReadOnly) {
         const currentGraph = graphRef.current;
         if (currentGraph) {
           commitGraph(withDebugBreakpoints(currentGraph, normalized));
         }
       }
     },
-    [commitGraph, hostClient]
+    [commitGraph, graphReadOnly, hostClient]
   );
 
   const recordRecentTemplate = useCallback(
@@ -970,6 +1012,9 @@ export function App(props: AppProps = {}): JSX.Element {
   );
 
   const undoGraph = useCallback(() => {
+    if (graphReadOnly) {
+      return;
+    }
     if (nativeUndoRedo) {
       hostClient.requestUndo();
       return;
@@ -983,9 +1028,12 @@ export function App(props: AppProps = {}): JSX.Element {
     }
     setHistory({ past: history.past.slice(0, -1), future: [graph, ...history.future].slice(0, 80) });
     restoreGraph(previous);
-  }, [graph, history, hostClient, nativeUndoRedo, restoreGraph]);
+  }, [graph, graphReadOnly, history, hostClient, nativeUndoRedo, restoreGraph]);
 
   const redoGraph = useCallback(() => {
+    if (graphReadOnly) {
+      return;
+    }
     if (nativeUndoRedo) {
       hostClient.requestRedo();
       return;
@@ -996,7 +1044,7 @@ export function App(props: AppProps = {}): JSX.Element {
     const next = history.future[0];
     setHistory({ past: [...history.past, graph].slice(-80), future: history.future.slice(1) });
     restoreGraph(next);
-  }, [graph, history, hostClient, nativeUndoRedo, restoreGraph]);
+  }, [graph, graphReadOnly, history, hostClient, nativeUndoRedo, restoreGraph]);
 
   const screenToGraph = useCallback(
     (clientX: number, clientY: number): Point => {
@@ -1017,9 +1065,9 @@ export function App(props: AppProps = {}): JSX.Element {
       if (!graph) {
         return;
       }
-      commitGraph({ ...graph, layout: { ...graph.layout, viewport } });
+      applyViewportGraph({ ...graph, layout: { ...graph.layout, viewport } });
     },
-    [commitGraph, graph]
+    [applyViewportGraph, graph]
   );
 
   useEffect(() => {
@@ -1053,9 +1101,9 @@ export function App(props: AppProps = {}): JSX.Element {
       }
       const rect = canvasRef.current?.getBoundingClientRect();
       const size = safeCanvasSize(rect, canvasSize);
-      commitGraph(withCenteredViewport(graph, point, size, graph.layout.viewport.zoom));
+      applyViewportGraph(withCenteredViewport(graph, point, size, graph.layout.viewport.zoom));
     },
-    [canvasSize.height, canvasSize.width, commitGraph, graph]
+    [applyViewportGraph, canvasSize.height, canvasSize.width, graph]
   );
 
   const zoomViewportAtCanvasCenter = useCallback(
@@ -1065,7 +1113,7 @@ export function App(props: AppProps = {}): JSX.Element {
       }
       const rect = canvasRef.current?.getBoundingClientRect();
       const size = safeCanvasSize(rect, canvasSize);
-      commitGraph({
+      applyViewportGraph({
         ...graph,
         layout: {
           ...graph.layout,
@@ -1073,7 +1121,7 @@ export function App(props: AppProps = {}): JSX.Element {
         }
       });
     },
-    [canvasSize.height, canvasSize.width, commitGraph, graph, viewportLocked]
+    [applyViewportGraph, canvasSize.height, canvasSize.width, graph, viewportLocked]
   );
 
   const fitGraphToCanvas = useCallback(() => {
@@ -1091,8 +1139,8 @@ export function App(props: AppProps = {}): JSX.Element {
     ]);
     const rect = canvasRef.current?.getBoundingClientRect();
     const size = safeCanvasSize(rect, canvasSize);
-    commitGraph(withFittedViewport(graph, bounds, size, 112));
-  }, [canvasSize.height, canvasSize.width, commitGraph, graph, templates, viewportLocked]);
+    applyViewportGraph(withFittedViewport(graph, bounds, size, 112));
+  }, [applyViewportGraph, canvasSize.height, canvasSize.width, graph, templates, viewportLocked]);
 
   const focusCommentById = useCallback(
     (commentId: string) => {
@@ -1108,7 +1156,7 @@ export function App(props: AppProps = {}): JSX.Element {
 
       const rect = canvasRef.current?.getBoundingClientRect();
       const size = safeCanvasSize(rect, { width: 1, height: 1 });
-      commitGraph(withFittedViewport(
+      applyViewportGraph(withFittedViewport(
         currentGraph,
         { x: comment.position.x, y: comment.position.y, width: comment.size.width, height: comment.size.height },
         size,
@@ -1116,7 +1164,7 @@ export function App(props: AppProps = {}): JSX.Element {
         { min: 0.45, max: 1.25 }
       ));
     },
-    [commitGraph]
+    [applyViewportGraph]
   );
 
   const onWheel = (event: React.WheelEvent) => {
@@ -1148,7 +1196,7 @@ export function App(props: AppProps = {}): JSX.Element {
           ...graph.layout,
           viewport: panViewport(panning.start, { x: event.clientX, y: event.clientY }, panning.viewport, graph.layout.viewport.zoom)
         }
-      });
+      }, { allowReadOnly: true });
     }
 
     if (draggingNodes?.length && graph) {
@@ -1305,6 +1353,10 @@ export function App(props: AppProps = {}): JSX.Element {
     setNodeMenu(undefined);
     setCommentMenu(undefined);
     setPortMenu(undefined);
+    if (graphReadOnly) {
+      dispatchCanvasInteraction({ type: "cancel" });
+      return;
+    }
     dispatchCanvasInteraction({ type: "openMenu", menu: "nodeCreation" });
     setNodePanel({
       open: true,
@@ -1315,7 +1367,7 @@ export function App(props: AppProps = {}): JSX.Element {
   };
 
   const addTemplateNodeAt = (template: BlueprintNodeTemplate, position: Point, sourcePort?: DragPort) => {
-    if (!graph) {
+    if (!graph || graphReadOnly) {
       return;
     }
 
@@ -1492,7 +1544,7 @@ export function App(props: AppProps = {}): JSX.Element {
   };
 
   const updateLiteral = (node: BlueprintNodeInstance, port: BlueprintPortDefinition, value: unknown) => {
-    if (!graph) {
+    if (!graph || graphReadOnly) {
       return;
     }
     const nodes = graph.nodes.map((candidate) =>
@@ -1510,28 +1562,28 @@ export function App(props: AppProps = {}): JSX.Element {
   };
 
   const updateCommentTitle = (comment: BlueprintCommentBox, title: string) => {
-    if (!graph) {
+    if (!graph || graphReadOnly) {
       return;
     }
     commitGraph(updateGraphCommentTitle(graph, comment.id, title));
   };
 
   const updateCommentSize = (comment: BlueprintCommentBox, size: { width: number; height: number }) => {
-    if (!graph) {
+    if (!graph || graphReadOnly) {
       return;
     }
     commitGraph(updateGraphCommentSize(graph, comment, size));
   };
 
   const updateCommentColor = (comment: BlueprintCommentBox, color: string) => {
-    if (!graph) {
+    if (!graph || graphReadOnly) {
       return;
     }
     commitGraph(updateGraphCommentColor(graph, comment.id, color));
   };
 
   const connectDraggedPort = (targetPort: DragPort) => {
-    if (!graph || !dragPort) {
+    if (!graph || !dragPort || graphReadOnly) {
       return;
     }
 
@@ -1560,7 +1612,7 @@ export function App(props: AppProps = {}): JSX.Element {
   };
 
   const unlinkPort = (node: BlueprintNodeInstance, port: BlueprintPortDefinition) => {
-    if (!graph) {
+    if (!graph || graphReadOnly) {
       return;
     }
     const link = graph.links.find((candidate) => candidate.toNodeId === node.id && candidate.toPortId === port.id);
@@ -1573,7 +1625,7 @@ export function App(props: AppProps = {}): JSX.Element {
 
   const breakLinksForPort = useCallback(
     (node: BlueprintNodeInstance, port: BlueprintPortDefinition) => {
-      if (!graph) {
+      if (!graph || graphReadOnly) {
         return;
       }
       const linkIds = linkIdsForPort(graph, node.id, port);
@@ -1587,12 +1639,12 @@ export function App(props: AppProps = {}): JSX.Element {
       setPortMenu(undefined);
       commitGraph(removeLinks(graph, linkIds));
     },
-    [commitGraph, graph]
+    [commitGraph, graph, graphReadOnly]
   );
 
   const startMoveInputLinkDrag = useCallback(
     (node: BlueprintNodeInstance, port: BlueprintPortDefinition): boolean => {
-      if (!graph || port.direction !== "input") {
+      if (!graph || graphReadOnly || port.direction !== "input") {
         return false;
       }
 
@@ -1633,12 +1685,12 @@ export function App(props: AppProps = {}): JSX.Element {
       updateLocalGraph(removeLinks(graph, new Set([link.id])));
       return true;
     },
-    [graph, templates, updateLocalGraph]
+    [graph, graphReadOnly, templates, updateLocalGraph]
   );
 
   const breakLinksForNodeIds = useCallback(
     (nodeIds: Set<string>) => {
-      if (!graph || !nodeIds.size) {
+      if (!graph || graphReadOnly || !nodeIds.size) {
         return;
       }
       const linkIds = incidentLinkIds(graph, nodeIds);
@@ -1653,7 +1705,7 @@ export function App(props: AppProps = {}): JSX.Element {
       setPortMenu(undefined);
       commitGraph(removeLinks(graph, linkIds));
     },
-    [commitGraph, graph]
+    [commitGraph, graph, graphReadOnly]
   );
 
   const breakLinksForSelection = useCallback(() => {
@@ -1662,19 +1714,19 @@ export function App(props: AppProps = {}): JSX.Element {
 
   const deleteLinkById = useCallback(
     (linkId: string) => {
-      if (!graph) {
+      if (!graph || graphReadOnly) {
         return;
       }
       setSelectedLinkIds(new Set());
       setWireMenu(undefined);
       commitGraph(removeLinks(graph, new Set([linkId])));
     },
-    [commitGraph, graph]
+    [commitGraph, graph, graphReadOnly]
   );
 
   const deleteNodeIds = useCallback(
     (nodeIds: Set<string>) => {
-      if (!graph || !nodeIds.size) {
+      if (!graph || graphReadOnly || !nodeIds.size) {
         return;
       }
       const deletion = deleteGraphNodes(graph, nodeIds);
@@ -1684,12 +1736,12 @@ export function App(props: AppProps = {}): JSX.Element {
       setNodeMenu(undefined);
       commitGraph(deletion.graph);
     },
-    [commitGraph, graph]
+    [commitGraph, graph, graphReadOnly]
   );
 
   const deleteCommentById = useCallback(
     (commentId: string) => {
-      if (!graph) {
+      if (!graph || graphReadOnly) {
         return;
       }
       setSelectedCommentIds(new Set());
@@ -1698,11 +1750,11 @@ export function App(props: AppProps = {}): JSX.Element {
       setCommentMenu(undefined);
       commitGraph(removeComments(graph, new Set([commentId])));
     },
-    [commitGraph, graph]
+    [commitGraph, graph, graphReadOnly]
   );
 
   const deleteSelection = useCallback(() => {
-    if (!graph || (!selectedNodeIds.size && !selectedLinkIds.size && !selectedCommentIds.size)) {
+    if (graphReadOnly || !graph || (!selectedNodeIds.size && !selectedLinkIds.size && !selectedCommentIds.size)) {
       return;
     }
     const deletion = deleteGraphSelection(graph, {
@@ -1715,7 +1767,7 @@ export function App(props: AppProps = {}): JSX.Element {
     setSelectedCommentIds(new Set());
     setCommentMenu(undefined);
     commitGraph(deletion.graph);
-  }, [commitGraph, graph, selectedCommentIds, selectedLinkIds, selectedNodeIds]);
+  }, [commitGraph, graph, graphReadOnly, selectedCommentIds, selectedLinkIds, selectedNodeIds]);
 
   const copySelection = useCallback(() => {
     if (!graph || !selectedNodeIds.size) {
@@ -1728,16 +1780,16 @@ export function App(props: AppProps = {}): JSX.Element {
   }, [graph, selectedNodeIds]);
 
   const pasteSelection = useCallback(() => {
-    if (!graph || !clipboard?.nodes.length) {
+    if (graphReadOnly || !graph || !clipboard?.nodes.length) {
       return;
     }
     const pasted = pasteGraphClipboard(graph, clipboard);
     setSelectedNodeIds(pasted.nextSelectedNodeIds);
     commitGraph(pasted.graph);
-  }, [clipboard, commitGraph, graph]);
+  }, [clipboard, commitGraph, graph, graphReadOnly]);
 
   const duplicateNodeIds = useCallback((targetNodeIds: Set<string>) => {
-    if (!graph || !targetNodeIds.size) {
+    if (graphReadOnly || !graph || !targetNodeIds.size) {
       return;
     }
     const duplicated = duplicateGraphNodes(graph, targetNodeIds);
@@ -1749,7 +1801,7 @@ export function App(props: AppProps = {}): JSX.Element {
     setSelectedCommentIds(new Set());
     setNodeMenu(undefined);
     commitGraph(duplicated.graph);
-  }, [commitGraph, graph]);
+  }, [commitGraph, graph, graphReadOnly]);
 
   const duplicateSelection = useCallback(() => {
     duplicateNodeIds(selectedNodeIds);
@@ -1779,11 +1831,11 @@ export function App(props: AppProps = {}): JSX.Element {
     const bounds = boundsForRects(targetRects);
     const rect = canvasRef.current?.getBoundingClientRect();
     const size = safeCanvasSize(rect, { width: 1, height: 1 });
-    commitGraph(withFittedViewport(graph, bounds, size, 96));
-  }, [commitGraph, graph, selectedCommentIds, selectedLinkIds, selectedNodeIds, templates]);
+    applyViewportGraph(withFittedViewport(graph, bounds, size, 96));
+  }, [applyViewportGraph, graph, selectedCommentIds, selectedLinkIds, selectedNodeIds, templates]);
 
   const createCommentBox = useCallback(() => {
-    if (!graph) {
+    if (!graph || graphReadOnly) {
       return;
     }
 
@@ -1799,10 +1851,10 @@ export function App(props: AppProps = {}): JSX.Element {
     setSelectedLinkIds(new Set());
     setSelectedCommentIds(new Set([result.comment.id]));
     commitGraph(result.graph);
-  }, [commitGraph, graph, selectedNodeIds, t, templates]);
+  }, [commitGraph, graph, graphReadOnly, selectedNodeIds, t, templates]);
 
   const collapseSelectionToMacroGraph = useCallback(() => {
-    if (!graph || !selectedNodeIds.size) {
+    if (graphReadOnly || !graph || !selectedNodeIds.size) {
       return;
     }
     const macroName = window.prompt(t("prompts.macroName"), t("prompts.collapsedMacroDefault"))?.trim();
@@ -1818,10 +1870,10 @@ export function App(props: AppProps = {}): JSX.Element {
     setSelectedLinkIds(new Set());
     setSelectedCommentIds(new Set());
     commitGraph(result.graph);
-  }, [commitGraph, graph, graphTemplates, selectedNodeIds, t]);
+  }, [commitGraph, graph, graphReadOnly, graphTemplates, selectedNodeIds, t]);
 
   const collapseSelectionToFunctionGraph = useCallback(() => {
-    if (!graph || !selectedNodeIds.size) {
+    if (graphReadOnly || !graph || !selectedNodeIds.size) {
       return;
     }
     const functionName = window.prompt(t("prompts.functionName"), t("prompts.collapsedFunctionDefault"))?.trim();
@@ -1837,7 +1889,7 @@ export function App(props: AppProps = {}): JSX.Element {
     setSelectedLinkIds(new Set());
     setSelectedCommentIds(new Set());
     commitGraph(result.graph);
-  }, [commitGraph, graph, graphTemplates, selectedNodeIds, t]);
+  }, [commitGraph, graph, graphReadOnly, graphTemplates, selectedNodeIds, t]);
 
   const selectedCollapsedTemplate = useMemo(() => {
     if (!graph || selectedNodeIds.size !== 1) {
@@ -1859,7 +1911,7 @@ export function App(props: AppProps = {}): JSX.Element {
   }, [hostClient, selectedCollapsedTemplate, t]);
 
   const toggleDisableSelectedNodes = useCallback(() => {
-    if (!graph || !selectedNodeIds.size) {
+    if (graphReadOnly || !graph || !selectedNodeIds.size) {
       return;
     }
     const selectedNodes = graph.nodes.filter((node) => selectedNodeIds.has(node.id));
@@ -1879,14 +1931,14 @@ export function App(props: AppProps = {}): JSX.Element {
         };
       })
     });
-  }, [commitGraph, graph, selectedNodeIds]);
+  }, [commitGraph, graph, graphReadOnly, selectedNodeIds]);
 
   const selectedNodesDisabled = graph
     ? graph.nodes.filter((node) => selectedNodeIds.has(node.id)).every((node) => node.displayOverrides?.disabled === true)
     : false;
 
   const createBookmark = useCallback(() => {
-    if (!graph) {
+    if (!graph || graphReadOnly) {
       return;
     }
 
@@ -1901,7 +1953,7 @@ export function App(props: AppProps = {}): JSX.Element {
       ? selectedTemplate?.name ?? selectedNode.id
       : t("bookmark.view", { count: graphBookmarks(graph).length + 1 });
     commitGraph(createGraphBookmark(graph, label, position, selectedNode?.id).graph);
-  }, [canvasSize.height, canvasSize.width, commitGraph, graph, selectedNode, selectedTemplate, t, templates]);
+  }, [canvasSize.height, canvasSize.width, commitGraph, graph, graphReadOnly, selectedNode, selectedTemplate, t, templates]);
 
   const focusBookmark = useCallback(
     (bookmark: BlueprintBookmark) => {
@@ -1916,17 +1968,17 @@ export function App(props: AppProps = {}): JSX.Element {
 
   const deleteBookmark = useCallback(
     (bookmarkId: string) => {
-      if (!graph) {
+      if (!graph || graphReadOnly) {
         return;
       }
       commitGraph(deleteGraphBookmark(graph, bookmarkId));
     },
-    [commitGraph, graph]
+    [commitGraph, graph, graphReadOnly]
   );
 
   const renameBookmark = useCallback(
     (bookmarkId: string, label: string) => {
-      if (!graph) {
+      if (!graph || graphReadOnly) {
         return;
       }
       const next = renameGraphBookmark(graph, bookmarkId, label, t("bookmark.fallback"));
@@ -1934,12 +1986,12 @@ export function App(props: AppProps = {}): JSX.Element {
         commitGraph(next);
       }
     },
-    [commitGraph, graph, t]
+    [commitGraph, graph, graphReadOnly, t]
   );
 
   const createBookmarkForNodeId = useCallback(
     (nodeId: string) => {
-      if (!graph) {
+      if (!graph || graphReadOnly) {
         return;
       }
       const node = graph.nodes.find((candidate) => candidate.id === nodeId);
@@ -1951,12 +2003,12 @@ export function App(props: AppProps = {}): JSX.Element {
       setNodeMenu(undefined);
       commitGraph(createGraphBookmark(graph, template?.name ?? node.id, { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }, node.id).graph);
     },
-    [commitGraph, graph, templates]
+    [commitGraph, graph, graphReadOnly, templates]
   );
 
   const createBookmarkForCommentId = useCallback(
     (commentId: string) => {
-      if (!graph) {
+      if (!graph || graphReadOnly) {
         return;
       }
       const comment = graphComments(graph).find((candidate) => candidate.id === commentId);
@@ -1969,12 +2021,12 @@ export function App(props: AppProps = {}): JSX.Element {
         y: comment.position.y + comment.size.height / 2
       }).graph);
     },
-    [commitGraph, graph, t]
+    [commitGraph, graph, graphReadOnly, t]
   );
 
   const rewrapCommentById = useCallback(
     (commentId: string) => {
-      if (!graph) {
+      if (!graph || graphReadOnly) {
         return;
       }
       const comments = graphComments(graph);
@@ -1995,11 +2047,11 @@ export function App(props: AppProps = {}): JSX.Element {
       setCommentMenu(undefined);
       commitGraph(replaceGraphComment(graph, nextComment));
     },
-    [commitGraph, graph, templates]
+    [commitGraph, graph, graphReadOnly, templates]
   );
 
   const insertRoutingHubForLinkIds = useCallback((linkIds: Set<string>) => {
-    if (!graph || !linkIds.size) {
+    if (!graph || graphReadOnly || !linkIds.size) {
       return;
     }
 
@@ -2023,14 +2075,14 @@ export function App(props: AppProps = {}): JSX.Element {
     setSelectedLinkIds(new Set());
     setWireMenu(undefined);
     commitGraph(result.graph);
-  }, [commitGraph, graph, templates]);
+  }, [commitGraph, graph, graphReadOnly, templates]);
 
   const insertRoutingHub = useCallback(() => {
     insertRoutingHubForLinkIds(selectedLinkIds);
   }, [insertRoutingHubForLinkIds, selectedLinkIds]);
 
   const cleanupSelectedRoutingHubs = useCallback(() => {
-    if (!graph || !selectedNodeIds.size) {
+    if (!graph || graphReadOnly || !selectedNodeIds.size) {
       return;
     }
 
@@ -2083,11 +2135,11 @@ export function App(props: AppProps = {}): JSX.Element {
     setSelectedCommentIds(new Set());
     setSelectedLinkIds(result.selectedLinkIds);
     commitGraph(result.graph);
-  }, [commitGraph, graph, selectedNodeIds, templates]);
+  }, [commitGraph, graph, graphReadOnly, selectedNodeIds, templates]);
 
   const alignSelection = useCallback(
     (mode: AlignMode) => {
-      if (!graph || selectedNodeIds.size < 2) {
+      if (!graph || graphReadOnly || selectedNodeIds.size < 2) {
         return;
       }
 
@@ -2101,12 +2153,12 @@ export function App(props: AppProps = {}): JSX.Element {
         commitGraph(next);
       }
     },
-    [commitGraph, graph, selectedNodeIds, templates]
+    [commitGraph, graph, graphReadOnly, selectedNodeIds, templates]
   );
 
   const distributeSelection = useCallback(
     (mode: DistributeMode) => {
-      if (!graph || selectedNodeIds.size < 3) {
+      if (!graph || graphReadOnly || selectedNodeIds.size < 3) {
         return;
       }
 
@@ -2120,7 +2172,7 @@ export function App(props: AppProps = {}): JSX.Element {
         commitGraph(next);
       }
     },
-    [commitGraph, graph, selectedNodeIds, templates]
+    [commitGraph, graph, graphReadOnly, selectedNodeIds, templates]
   );
 
   const requestCompile = () => {
@@ -2272,7 +2324,7 @@ export function App(props: AppProps = {}): JSX.Element {
   };
 
   const autoLayout = () => {
-    if (!graph) {
+    if (!graph || graphReadOnly) {
       return;
     }
 
@@ -2310,14 +2362,14 @@ export function App(props: AppProps = {}): JSX.Element {
   const warningCount = issues.filter((issue) => issue.severity === "warning").length;
   const runtimeActionState = runtimeSurfaceState(isRuntimeRunning, runtimeQueueStatus.queuedRuns, runtimeNodeStatus, runtimeOutput);
   const runtimeProgressCount = isRuntimeRunning ? runtimeNodeStatus.size : 0;
-  const canAlignSelection = selectedNodeIds.size >= 2;
-  const canDistributeSelection = selectedNodeIds.size >= 3;
+  const canAlignSelection = !graphReadOnly && selectedNodeIds.size >= 2;
+  const canDistributeSelection = !graphReadOnly && selectedNodeIds.size >= 3;
   const selectedNodeLinkCount = incidentLinkIds(graph, selectedNodeIds).size;
-  const canCleanupRoutingHubs = graph.nodes.some((node) => selectedNodeIds.has(node.id) && isRoutingHubNode(node));
-  const canCollapseSelectionToMacro = selectedNodeIds.size > 0;
-  const canCollapseSelectionToFunction = selectedNodeIds.size > 0;
-  const canExtractCollapsedUnitToProjectGraph = Boolean(selectedCollapsedTemplate);
-  const canToggleDisableSelection = selectedNodeIds.size > 0;
+  const canCleanupRoutingHubs = !graphReadOnly && graph.nodes.some((node) => selectedNodeIds.has(node.id) && isRoutingHubNode(node));
+  const canCollapseSelectionToMacro = !graphReadOnly && selectedNodeIds.size > 0;
+  const canCollapseSelectionToFunction = !graphReadOnly && selectedNodeIds.size > 0;
+  const canExtractCollapsedUnitToProjectGraph = !graphReadOnly && Boolean(selectedCollapsedTemplate);
+  const canToggleDisableSelection = !graphReadOnly && selectedNodeIds.size > 0;
   const portMenuTarget = portMenu ? resolvePortMenuTarget(graph, templates, portMenu) : undefined;
   const portMenuLinkCount = portMenuTarget ? linkIdsForPort(graph, portMenuTarget.node.id, portMenuTarget.port).size : 0;
   const selectionBounds = selectionBoundsForGraph(graph, templates, selectedNodeIds, selectedCommentIds, selectedLinkIds);
@@ -2440,6 +2492,7 @@ export function App(props: AppProps = {}): JSX.Element {
       category: commandCategories.graph,
       shortcut: "A",
       run: () => setNodePanel({ open: true, screen: { x: 280, y: 120 }, graph: maybeSnapPoint(screenToGraph(280, 120)) }),
+      disabled: graphReadOnly,
       keywords: ["palette", "create"]
     },
     {
@@ -2450,22 +2503,22 @@ export function App(props: AppProps = {}): JSX.Element {
       run: openNodeFindDialog,
       keywords: ["search", "outline"]
     },
-    { id: "graph.undo", title: t("commands.graph.undo"), category: commandCategories.edit, shortcut: "Ctrl+Z", run: undoGraph, disabled: !nativeUndoRedo && !history.past.length },
-    { id: "graph.redo", title: t("commands.graph.redo"), category: commandCategories.edit, shortcut: "Ctrl+Shift+Z", alternateShortcuts: ["Ctrl+Y"], run: redoGraph, disabled: !nativeUndoRedo && !history.future.length },
+    { id: "graph.undo", title: t("commands.graph.undo"), category: commandCategories.edit, shortcut: "Ctrl+Z", run: undoGraph, disabled: graphReadOnly || (!nativeUndoRedo && !history.past.length) },
+    { id: "graph.redo", title: t("commands.graph.redo"), category: commandCategories.edit, shortcut: "Ctrl+Shift+Z", alternateShortcuts: ["Ctrl+Y"], run: redoGraph, disabled: graphReadOnly || (!nativeUndoRedo && !history.future.length) },
     { id: "graph.copy", title: t("commands.graph.copySelection"), category: commandCategories.edit, shortcut: "Ctrl+C", run: copySelection, disabled: !selectedNodeIds.size && !selectedCommentIds.size },
-    { id: "graph.paste", title: t("commands.graph.pasteSelection"), category: commandCategories.edit, shortcut: "Ctrl+V", run: pasteSelection, disabled: !clipboard },
-    { id: "graph.duplicate", title: t("commands.graph.duplicateSelection"), category: commandCategories.edit, shortcut: "Ctrl+D", run: duplicateSelection, disabled: !selectedNodeIds.size && !selectedCommentIds.size },
-    { id: "graph.delete", title: t("commands.graph.deleteSelection"), category: commandCategories.edit, shortcut: "Delete", alternateShortcuts: ["Backspace"], run: deleteSelection, disabled: !selectedNodeIds.size && !selectedLinkIds.size && !selectedCommentIds.size },
+    { id: "graph.paste", title: t("commands.graph.pasteSelection"), category: commandCategories.edit, shortcut: "Ctrl+V", run: pasteSelection, disabled: graphReadOnly || !clipboard },
+    { id: "graph.duplicate", title: t("commands.graph.duplicateSelection"), category: commandCategories.edit, shortcut: "Ctrl+D", run: duplicateSelection, disabled: graphReadOnly || (!selectedNodeIds.size && !selectedCommentIds.size) },
+    { id: "graph.delete", title: t("commands.graph.deleteSelection"), category: commandCategories.edit, shortcut: "Delete", alternateShortcuts: ["Backspace"], run: deleteSelection, disabled: graphReadOnly || (!selectedNodeIds.size && !selectedLinkIds.size && !selectedCommentIds.size) },
     { id: "graph.frameSelection", title: t("commands.graph.frameSelection"), category: commandCategories.view, shortcut: "F", run: frameSelection, disabled: !selectedNodeIds.size && !selectedLinkIds.size && !selectedCommentIds.size },
-    { id: "graph.autoLayout", title: t("commands.graph.autoLayout"), category: commandCategories.graph, run: autoLayout, disabled: !graph.nodes.length },
+    { id: "graph.autoLayout", title: t("commands.graph.autoLayout"), category: commandCategories.graph, run: autoLayout, disabled: graphReadOnly || !graph.nodes.length },
     { id: "graph.collapseSelectionToMacro", title: t("commands.graph.collapseSelectionToMacro"), category: commandCategories.graph, run: collapseSelectionToMacroGraph, disabled: !canCollapseSelectionToMacro },
     { id: "graph.collapseSelectionToFunction", title: t("commands.graph.collapseSelectionToFunction"), category: commandCategories.graph, run: collapseSelectionToFunctionGraph, disabled: !canCollapseSelectionToFunction },
     { id: "graph.extractCollapsedUnitToProjectGraph", title: t("commands.graph.extractCollapsedUnit"), category: commandCategories.graph, run: extractSelectedCollapsedUnitToProjectGraph, disabled: !canExtractCollapsedUnitToProjectGraph },
-    { id: "graph.insertRoutingHub", title: t("commands.graph.insertRoutingHub"), category: commandCategories.graph, run: insertRoutingHub, disabled: !selectedLinkIds.size },
+    { id: "graph.insertRoutingHub", title: t("commands.graph.insertRoutingHub"), category: commandCategories.graph, run: insertRoutingHub, disabled: graphReadOnly || !selectedLinkIds.size },
     { id: "graph.cleanupRoutingHubs", title: t("commands.graph.cleanupRoutingHubs"), category: commandCategories.graph, run: cleanupSelectedRoutingHubs, disabled: !canCleanupRoutingHubs },
-    { id: "graph.breakSelectedLinks", title: t("commands.graph.breakSelectedLinks"), category: commandCategories.graph, run: breakLinksForSelection, disabled: !selectedNodeLinkCount },
-    { id: "graph.createComment", title: t("commands.graph.createCommentBox"), category: commandCategories.graph, run: createCommentBox },
-    { id: "graph.addBookmark", title: t("commands.graph.addBookmark"), category: commandCategories.graph, run: createBookmark },
+    { id: "graph.breakSelectedLinks", title: t("commands.graph.breakSelectedLinks"), category: commandCategories.graph, run: breakLinksForSelection, disabled: graphReadOnly || !selectedNodeLinkCount },
+    { id: "graph.createComment", title: t("commands.graph.createCommentBox"), category: commandCategories.graph, run: createCommentBox, disabled: graphReadOnly },
+    { id: "graph.addBookmark", title: t("commands.graph.addBookmark"), category: commandCategories.graph, run: createBookmark, disabled: graphReadOnly },
     { id: "graph.alignLeft", title: t("commands.graph.alignLeft"), category: commandCategories.layout, run: () => alignSelection("left"), disabled: !canAlignSelection },
     { id: "graph.alignRight", title: t("commands.graph.alignRight"), category: commandCategories.layout, run: () => alignSelection("right"), disabled: !canAlignSelection },
     { id: "graph.alignTop", title: t("commands.graph.alignTop"), category: commandCategories.layout, run: () => alignSelection("top"), disabled: !canAlignSelection },
@@ -2552,13 +2605,13 @@ export function App(props: AppProps = {}): JSX.Element {
     { id: "linkMode", title: t("canvasCommands.linkMode", { mode: t(`linkRenderMode.${linkRenderMode}`) }), section: t("toolbarOverflow.quick"), tier: "secondary", icon: <Route size={14} />, run: () => updateEditorPrefs({ linkRenderMode: nextLinkRenderMode(linkRenderMode) }) },
     { id: "viewportLock", title: viewportLocked ? t("canvasCommands.unlockViewport") : t("canvasCommands.lockViewport"), section: t("toolbarOverflow.quick"), tier: "secondary", icon: viewportLocked ? <Lock size={14} /> : <Unlock size={14} />, run: () => setViewportLocked((current) => !current) },
     { id: "frameSelection", title: t("commands.graph.frameSelection"), section: t("toolbarOverflow.quick"), tier: "secondary", icon: <Focus size={14} />, run: frameSelection, disabled: !selectedNodeIds.size && !selectedLinkIds.size && !selectedCommentIds.size },
-    { id: "duplicateSelection", title: t("commands.graph.duplicateSelection"), section: t("toolbarOverflow.quick"), tier: "secondary", icon: <Copy size={14} />, run: duplicateSelection, disabled: !selectedNodeIds.size },
-    { id: "autoLayout", title: t("commands.graph.autoLayout"), section: t("toolbarOverflow.graphFlow"), tier: "secondary", icon: <Workflow size={14} />, run: autoLayout, disabled: !graph.nodes.length },
-    { id: "insertRoutingHub", title: t("commands.graph.insertRoutingHub"), section: t("toolbarOverflow.graphFlow"), tier: "secondary", icon: <Route size={14} />, run: insertRoutingHub, disabled: !selectedLinkIds.size },
+    { id: "duplicateSelection", title: t("commands.graph.duplicateSelection"), section: t("toolbarOverflow.quick"), tier: "secondary", icon: <Copy size={14} />, run: duplicateSelection, disabled: graphReadOnly || !selectedNodeIds.size },
+    { id: "autoLayout", title: t("commands.graph.autoLayout"), section: t("toolbarOverflow.graphFlow"), tier: "secondary", icon: <Workflow size={14} />, run: autoLayout, disabled: graphReadOnly || !graph.nodes.length },
+    { id: "insertRoutingHub", title: t("commands.graph.insertRoutingHub"), section: t("toolbarOverflow.graphFlow"), tier: "secondary", icon: <Route size={14} />, run: insertRoutingHub, disabled: graphReadOnly || !selectedLinkIds.size },
     { id: "cleanupRoutingHubs", title: t("commands.graph.cleanupRoutingHubs"), section: t("toolbarOverflow.graphFlow"), tier: "secondary", icon: <RouteOff size={14} />, run: cleanupSelectedRoutingHubs, disabled: !canCleanupRoutingHubs },
-    { id: "breakLinks", title: t("commands.graph.breakSelectedLinks"), section: t("toolbarOverflow.graphFlow"), tier: "secondary", icon: <Unlink size={14} />, run: breakLinksForSelection, disabled: !selectedNodeLinkCount },
-    { id: "createComment", title: t("commands.graph.createCommentBox"), section: t("toolbarOverflow.graphFlow"), tier: "secondary", icon: <StickyNote size={14} />, run: createCommentBox },
-    { id: "addBookmark", title: t("commands.graph.addBookmark"), section: t("toolbarOverflow.graphFlow"), tier: "secondary", icon: <BookmarkPlus size={14} />, run: createBookmark },
+    { id: "breakLinks", title: t("commands.graph.breakSelectedLinks"), section: t("toolbarOverflow.graphFlow"), tier: "secondary", icon: <Unlink size={14} />, run: breakLinksForSelection, disabled: graphReadOnly || !selectedNodeLinkCount },
+    { id: "createComment", title: t("commands.graph.createCommentBox"), section: t("toolbarOverflow.graphFlow"), tier: "secondary", icon: <StickyNote size={14} />, run: createCommentBox, disabled: graphReadOnly },
+    { id: "addBookmark", title: t("commands.graph.addBookmark"), section: t("toolbarOverflow.graphFlow"), tier: "secondary", icon: <BookmarkPlus size={14} />, run: createBookmark, disabled: graphReadOnly },
     { id: "collapseSelectionToMacro", title: t("commands.graph.collapseSelectionToMacro"), section: t("toolbarOverflow.refactor"), tier: "overflow", icon: <PackageIcon size={14} />, run: collapseSelectionToMacroGraph, disabled: !canCollapseSelectionToMacro },
     { id: "collapseSelectionToFunction", title: t("commands.graph.collapseSelectionToFunction"), section: t("toolbarOverflow.refactor"), tier: "overflow", icon: <GitBranch size={14} />, run: collapseSelectionToFunctionGraph, disabled: !canCollapseSelectionToFunction },
     { id: "extractCollapsedUnit", title: t("commands.graph.extractCollapsedUnit"), section: t("toolbarOverflow.refactor"), tier: "overflow", icon: <PackageIcon size={14} />, run: extractSelectedCollapsedUnitToProjectGraph, disabled: !canExtractCollapsedUnitToProjectGraph },
@@ -2659,7 +2712,11 @@ export function App(props: AppProps = {}): JSX.Element {
             hostClient.requestRenameSolutionGraph(graphPath, nextName);
           }
         }}
-        onAddNode={() => setNodePanel({ open: true, screen: { x: 280, y: 120 }, graph: maybeSnapPoint(screenToGraph(280, 120)) })}
+        onAddNode={() => {
+          if (!graphReadOnly) {
+            setNodePanel({ open: true, screen: { x: 280, y: 120 }, graph: maybeSnapPoint(screenToGraph(280, 120)) });
+          }
+        }}
         onNodeFindQueryChange={setNodeFindQuery}
         onOutlineQueryChange={setOutlineQuery}
         onSelectNode={selectNode}
@@ -2670,10 +2727,26 @@ export function App(props: AppProps = {}): JSX.Element {
         onFocusBookmark={focusBookmark}
         onRenameBookmark={renameBookmark}
         onDeleteBookmark={deleteBookmark}
-        onRenameGraphNodeId={(oldNodeId, nextNodeId) => hostClient.requestRenameGraphNodeId(oldNodeId, nextNodeId)}
-        onRenameSolutionBlackboardKey={(oldKey, nextKey) => hostClient.requestRenameSolutionBlackboardKey(oldKey, nextKey)}
-        onRetargetSolutionTemplate={(oldTemplateId, nextTemplateId) => hostClient.requestRetargetSolutionTemplate(oldTemplateId, nextTemplateId)}
-        onRetargetSolutionTemplateSource={(oldSourcePath, nextSourcePath) => hostClient.requestRetargetSolutionTemplateSource(oldSourcePath, nextSourcePath)}
+        onRenameGraphNodeId={(oldNodeId, nextNodeId) => {
+          if (!graphReadOnly) {
+            hostClient.requestRenameGraphNodeId(oldNodeId, nextNodeId);
+          }
+        }}
+        onRenameSolutionBlackboardKey={(oldKey, nextKey) => {
+          if (!graphReadOnly) {
+            hostClient.requestRenameSolutionBlackboardKey(oldKey, nextKey);
+          }
+        }}
+        onRetargetSolutionTemplate={(oldTemplateId, nextTemplateId) => {
+          if (!graphReadOnly) {
+            hostClient.requestRetargetSolutionTemplate(oldTemplateId, nextTemplateId);
+          }
+        }}
+        onRetargetSolutionTemplateSource={(oldSourcePath, nextSourcePath) => {
+          if (!graphReadOnly) {
+            hostClient.requestRetargetSolutionTemplateSource(oldSourcePath, nextSourcePath);
+          }
+        }}
         onToggleBreakpointEnabled={toggleBreakpointEnabled}
         onFocusBreakpoint={focusBreakpoint}
         onSetBreakpointCondition={setBreakpointCondition}
@@ -2783,6 +2856,7 @@ export function App(props: AppProps = {}): JSX.Element {
                 comment={comment}
                 t={t}
                 selected={selectedCommentIds.has(comment.id)}
+                readOnly={graphReadOnly}
                 onSelect={(event) => selectComment(comment.id, event.ctrlKey || event.metaKey || event.shiftKey)}
                 onContextMenu={(event) => openCommentContextMenu(comment.id, event)}
                 onCommentDragStart={(event) => {
@@ -2837,6 +2911,7 @@ export function App(props: AppProps = {}): JSX.Element {
                 hasBreakpoint={breakpointNodeIds.has(node.id)}
                 highlightedPortId={focusedIssueKey && focusedIssueKey.includes(`node:${node.id}`) ? issues.find((issue) => issueKey(issue) === focusedIssueKey)?.portId : undefined}
                 runtimeStatus={runtimeNodeStatus.get(node.id)?.status}
+                readOnly={graphReadOnly}
                 onSelect={(event) => selectNode(node.id, event.ctrlKey || event.metaKey || event.shiftKey)}
                 onContextMenu={(event) => openNodeContextMenu(node.id, event)}
                 portCompatibility={(port) =>
@@ -2901,12 +2976,13 @@ export function App(props: AppProps = {}): JSX.Element {
                   incidentLinkCount={selectedNodeLinkCount}
                   hasBreakpoint={Boolean(selectedNodeId && breakpointNodeIds.has(selectedNodeId))}
                   activeCommentColor={selectedComment?.color}
-                  canDuplicate={selectedNodeIds.size > 0}
+                  canDuplicate={!graphReadOnly && selectedNodeIds.size > 0}
                   canCollapseToMacro={canCollapseSelectionToMacro}
                   canCollapseToFunction={canCollapseSelectionToFunction}
                   canToggleDisable={canToggleDisableSelection}
                   selectionDisabled={selectedNodesDisabled}
-                canToggleBreakpoint={selectedNodeIds.size === 1 && !selectedCommentIds.size && !selectedLinkIds.size}
+                  canToggleBreakpoint={selectedNodeIds.size === 1 && !selectedCommentIds.size && !selectedLinkIds.size}
+                  readOnly={graphReadOnly}
                   t={t}
                   onDelete={deleteSelection}
                   onFrame={frameSelection}
@@ -2979,6 +3055,7 @@ export function App(props: AppProps = {}): JSX.Element {
                   t={t}
                   position={wireMenu.screen}
                   link={graph.links.find((link) => link.id === wireMenu.linkId)}
+                  readOnly={graphReadOnly}
                   onDelete={() => deleteLinkById(wireMenu.linkId)}
                   onRoute={() => insertRoutingHubForLinkIds(new Set([wireMenu.linkId]))}
                   onClose={() => {
@@ -2995,6 +3072,7 @@ export function App(props: AppProps = {}): JSX.Element {
                   nodeCount={nodeMenu.nodeIds.length}
                   linkCount={incidentLinkIds(graph, new Set(nodeMenu.nodeIds)).size}
                   hasBreakpoint={breakpointNodeIds.has(nodeMenu.nodeId)}
+                  readOnly={graphReadOnly}
                   onDuplicate={() => duplicateNodeIds(new Set(nodeMenu.nodeIds))}
                   onDelete={() => deleteNodeIds(new Set(nodeMenu.nodeIds))}
                   onBreakLinks={() => breakLinksForNodeIds(new Set(nodeMenu.nodeIds))}
@@ -3011,6 +3089,7 @@ export function App(props: AppProps = {}): JSX.Element {
                   t={t}
                   position={commentMenu.screen}
                   comment={graphComments(graph).find((comment) => comment.id === commentMenu.commentId)}
+                  readOnly={graphReadOnly}
                   onFocus={() => {
                     setCommentMenu(undefined);
                     dispatchCanvasInteraction({ type: "cancel" });
@@ -3032,6 +3111,7 @@ export function App(props: AppProps = {}): JSX.Element {
                   node={portMenuTarget?.node}
                   port={portMenuTarget?.port}
                   linkCount={portMenuLinkCount}
+                  readOnly={graphReadOnly}
                   onBreakLinks={() => {
                     if (portMenuTarget) {
                       breakLinksForPort(portMenuTarget.node, portMenuTarget.port);
@@ -3072,12 +3152,13 @@ export function App(props: AppProps = {}): JSX.Element {
             onIssueFocus={focusIssue}
             onLiteralChange={updateLiteral}
             onUnlink={unlinkPort}
+            readOnly={graphReadOnly}
             t={t}
             locale={editorPrefs.language}
             nodeLabelMode={editorPrefs.nodeLabelMode}
           />
         ) : selectedComment ? (
-          <CommentInspector comment={selectedComment} t={t} onTitleChange={updateCommentTitle} onSizeChange={updateCommentSize} onColorChange={updateCommentColor} />
+          <CommentInspector comment={selectedComment} t={t} readOnly={graphReadOnly} onTitleChange={updateCommentTitle} onSizeChange={updateCommentSize} onColorChange={updateCommentColor} />
         ) : undefined}
       </InspectorPanel>
       )}
@@ -3106,6 +3187,7 @@ export function App(props: AppProps = {}): JSX.Element {
           sources={templateRegistrySources}
           favoriteTemplateIds={favoriteTemplateIds}
           disabledPackageIds={disabledTemplatePackageIds}
+          readOnly={graphReadOnly}
           t={t}
           locale={editorPrefs.language}
           nodeLabelMode={editorPrefs.nodeLabelMode}
@@ -3127,6 +3209,7 @@ function CommentBox(props: {
   comment: BlueprintCommentBox;
   t: Translator;
   selected: boolean;
+  readOnly: boolean;
   onSelect(event: React.PointerEvent): void;
   onContextMenu(event: React.MouseEvent<HTMLDivElement>): void;
   onCommentDragStart(event: React.PointerEvent<HTMLDivElement>): void;
@@ -3148,6 +3231,9 @@ function CommentBox(props: {
       onPointerDown={(event) => {
         event.stopPropagation();
         props.onSelect(event);
+        if (props.readOnly) {
+          return;
+        }
         props.onCommentDragStart(event);
       }}
       onContextMenu={props.onContextMenu}
@@ -3160,9 +3246,13 @@ function CommentBox(props: {
         onPointerDown={(event) => {
           event.preventDefault();
           event.stopPropagation();
+          if (props.readOnly) {
+            return;
+          }
           props.onSelect(event);
           props.onCommentResizeStart(event);
         }}
+        disabled={props.readOnly}
       />
     </div>
   );
@@ -3179,6 +3269,7 @@ function BlueprintNode(props: {
   hasBreakpoint: boolean;
   highlightedPortId?: string;
   runtimeStatus?: RuntimeTraceEvent["status"];
+  readOnly: boolean;
   onSelect(event: React.PointerEvent): void;
   onDoubleClick(event: React.MouseEvent<HTMLDivElement>): void;
   onContextMenu(event: React.MouseEvent<HTMLDivElement>): void;
@@ -3227,6 +3318,9 @@ function BlueprintNode(props: {
             return;
           }
           props.onSelect(event);
+          if (props.readOnly) {
+            return;
+          }
           props.onNodeDragStart(event);
         }}
       >
@@ -3243,6 +3337,7 @@ function BlueprintNode(props: {
               side={port.direction === "input" ? "left" : "right"}
               highlighted={props.highlightedPortId === port.id}
               compatibility={props.portCompatibility(port)}
+              readOnly={props.readOnly}
               onPointerDown={(event) => props.onPortDragStart(port, event)}
               onContextMenu={(event) => props.onPortContextMenu(port, event)}
               onPointerUp={() => props.onPortDrop(port)}
@@ -3272,6 +3367,9 @@ function BlueprintNode(props: {
           return;
         }
         props.onSelect(event);
+        if (props.readOnly) {
+          return;
+        }
         props.onNodeDragStart(event);
       }}
     >
@@ -3282,16 +3380,16 @@ function BlueprintNode(props: {
         <span>{templateText.creationPath || props.t("node.missingTemplate")}</span>
       </div>
       <div className="exec-row">
-        {template?.controlInputs.map((port) => <Port key={port.id} port={port} template={template} locale={props.locale} nodeLabelMode={props.nodeLabelMode} side="left" highlighted={props.highlightedPortId === port.id} compatibility={props.portCompatibility(port)} onPointerDown={(event) => props.onPortDragStart(port, event)} onContextMenu={(event) => props.onPortContextMenu(port, event)} onPointerUp={() => props.onPortDrop(port)} />)}
+        {template?.controlInputs.map((port) => <Port key={port.id} port={port} template={template} locale={props.locale} nodeLabelMode={props.nodeLabelMode} side="left" highlighted={props.highlightedPortId === port.id} compatibility={props.portCompatibility(port)} readOnly={props.readOnly} onPointerDown={(event) => props.onPortDragStart(port, event)} onContextMenu={(event) => props.onPortContextMenu(port, event)} onPointerUp={() => props.onPortDrop(port)} />)}
         <div className="exec-spacer" />
-        {template?.controlOutputs.map((port) => <Port key={port.id} port={port} template={template} locale={props.locale} nodeLabelMode={props.nodeLabelMode} side="right" highlighted={props.highlightedPortId === port.id} compatibility={props.portCompatibility(port)} onPointerDown={(event) => props.onPortDragStart(port, event)} onContextMenu={(event) => props.onPortContextMenu(port, event)} onPointerUp={() => props.onPortDrop(port)} />)}
+        {template?.controlOutputs.map((port) => <Port key={port.id} port={port} template={template} locale={props.locale} nodeLabelMode={props.nodeLabelMode} side="right" highlighted={props.highlightedPortId === port.id} compatibility={props.portCompatibility(port)} readOnly={props.readOnly} onPointerDown={(event) => props.onPortDragStart(port, event)} onContextMenu={(event) => props.onPortContextMenu(port, event)} onPointerUp={() => props.onPortDrop(port)} />)}
       </div>
       <div className="data-rows">
         <div>
-          {template?.inputs.map((port) => <Port key={port.id} port={port} template={template} locale={props.locale} nodeLabelMode={props.nodeLabelMode} side="left" highlighted={props.highlightedPortId === port.id} compatibility={props.portCompatibility(port)} onPointerDown={(event) => props.onPortDragStart(port, event)} onContextMenu={(event) => props.onPortContextMenu(port, event)} onPointerUp={() => props.onPortDrop(port)} />)}
+          {template?.inputs.map((port) => <Port key={port.id} port={port} template={template} locale={props.locale} nodeLabelMode={props.nodeLabelMode} side="left" highlighted={props.highlightedPortId === port.id} compatibility={props.portCompatibility(port)} readOnly={props.readOnly} onPointerDown={(event) => props.onPortDragStart(port, event)} onContextMenu={(event) => props.onPortContextMenu(port, event)} onPointerUp={() => props.onPortDrop(port)} />)}
         </div>
         <div>
-          {template?.outputs.map((port) => <Port key={port.id} port={port} template={template} locale={props.locale} nodeLabelMode={props.nodeLabelMode} side="right" highlighted={props.highlightedPortId === port.id} compatibility={props.portCompatibility(port)} onPointerDown={(event) => props.onPortDragStart(port, event)} onContextMenu={(event) => props.onPortContextMenu(port, event)} onPointerUp={() => props.onPortDrop(port)} />)}
+          {template?.outputs.map((port) => <Port key={port.id} port={port} template={template} locale={props.locale} nodeLabelMode={props.nodeLabelMode} side="right" highlighted={props.highlightedPortId === port.id} compatibility={props.portCompatibility(port)} readOnly={props.readOnly} onPointerDown={(event) => props.onPortDragStart(port, event)} onContextMenu={(event) => props.onPortContextMenu(port, event)} onPointerUp={() => props.onPortDrop(port)} />)}
         </div>
       </div>
     </div>
@@ -3454,6 +3552,7 @@ function TemplateRegistryPanel(props: {
   sources: TemplateRegistrySourceSummary[];
   favoriteTemplateIds: Set<string>;
   disabledPackageIds: Set<string>;
+  readOnly: boolean;
   t: Translator;
   locale: Locale;
   nodeLabelMode: NodeLabelMode;
@@ -3589,7 +3688,7 @@ function TemplateRegistryPanel(props: {
                     >
                       <Star size={14} />
                     </button>
-                    <button type="button" title={activeTemplateAvailable ? props.t("templateRegistry.createTemplateNode", { name: activeTemplateText.name }) : props.t("templateRegistry.templateDisabled", { name: activeTemplateText.name })} disabled={!activeTemplateAvailable} onClick={() => props.onCreateTemplate(activeTemplate)}>
+                    <button type="button" title={activeTemplateAvailable ? props.t("templateRegistry.createTemplateNode", { name: activeTemplateText.name }) : props.t("templateRegistry.templateDisabled", { name: activeTemplateText.name })} disabled={props.readOnly || !activeTemplateAvailable} onClick={() => props.onCreateTemplate(activeTemplate)}>
                       <Plus size={14} />
                     </button>
                   </div>
@@ -4143,6 +4242,7 @@ function SelectionToolbox(props: {
   canToggleDisable: boolean;
   selectionDisabled: boolean;
   canToggleBreakpoint: boolean;
+  readOnly: boolean;
   t: Translator;
   onDelete(): void;
   onFrame(): void;
@@ -4179,7 +4279,7 @@ function SelectionToolbox(props: {
       <button type="button" title={props.t("selection.showInfo")} onClick={props.onShowInfo}>
         <Info size={14} />
       </button>
-      <button type="button" title={props.t("selection.createComment")} onClick={props.onCreateComment}>
+      <button type="button" title={props.t("selection.createComment")} onClick={props.onCreateComment} disabled={props.readOnly}>
         <StickyNote size={14} />
       </button>
       <button type="button" title={props.t("selection.duplicate")} onClick={props.onDuplicate} disabled={!props.canDuplicate}>
@@ -4200,7 +4300,7 @@ function SelectionToolbox(props: {
       >
         <Power size={14} />
       </button>
-      <button type="button" title={props.t("selection.breakLinks")} onClick={props.onBreakLinks} disabled={!props.incidentLinkCount}>
+      <button type="button" title={props.t("selection.breakLinks")} onClick={props.onBreakLinks} disabled={props.readOnly || !props.incidentLinkCount}>
         <Unlink size={14} />
       </button>
       <button
@@ -4219,10 +4319,11 @@ function SelectionToolbox(props: {
           t={props.t}
           labelKey="selection.commentColors"
           titleKey="selection.setCommentColor"
+          disabled={props.readOnly}
           onChange={props.onCommentColor}
         />
       ) : null}
-      <button type="button" title={props.t("selection.delete")} onClick={props.onDelete}>
+      <button type="button" title={props.t("selection.delete")} onClick={props.onDelete} disabled={props.readOnly}>
         <Trash2 size={14} />
       </button>
     </div>
@@ -4235,6 +4336,7 @@ function CommentColorControls(props: {
   t: Translator;
   labelKey: string;
   titleKey: string;
+  disabled?: boolean;
   onChange(color: string): void;
 }): JSX.Element {
   const activeColor = normalizeColorInput(props.activeColor);
@@ -4249,6 +4351,7 @@ function CommentColorControls(props: {
             className={normalizedColor === activeColor ? "comment-swatch active" : "comment-swatch"}
             style={{ background: normalizedColor, "--comment-color": normalizedColor } as CSSProperties}
             title={props.t(props.titleKey, { color: normalizedColor })}
+            disabled={props.disabled}
             onClick={() => props.onChange(normalizedColor)}
           />
         );
@@ -4258,6 +4361,7 @@ function CommentColorControls(props: {
           type="color"
           value={activeColor}
           aria-label={props.t("comment.customColor")}
+          disabled={props.disabled}
           onChange={(event) => props.onChange(event.target.value)}
         />
         <span style={{ background: activeColor }} />
@@ -4361,6 +4465,7 @@ function Port(props: {
   side: "left" | "right";
   highlighted?: boolean;
   compatibility?: PortCompatibility;
+  readOnly: boolean;
   onPointerDown(event: React.PointerEvent<HTMLButtonElement>): void;
   onContextMenu(event: React.MouseEvent<HTMLButtonElement>): void;
   onPointerUp?(): void;
@@ -4373,11 +4478,19 @@ function Port(props: {
       title={`${portText.name}: ${props.port.type}${portText.description ? ` · ${portText.description}` : ""}`}
       onPointerDown={(event) => {
         event.stopPropagation();
+        if (props.readOnly) {
+          event.preventDefault();
+          return;
+        }
         props.onPointerDown(event);
       }}
       onContextMenu={props.onContextMenu}
       onPointerUp={(event) => {
         event.stopPropagation();
+        if (props.readOnly) {
+          event.preventDefault();
+          return;
+        }
         props.onPointerUp?.();
       }}
     >
@@ -4421,6 +4534,7 @@ function WireContextMenu(props: {
   t: Translator;
   position: Point;
   link: BlueprintLink | undefined;
+  readOnly: boolean;
   onDelete(): void;
   onRoute(): void;
   onClose(): void;
@@ -4434,10 +4548,10 @@ function WireContextMenu(props: {
       onContextMenu={isolateOverlayContextMenu}
     >
       <div className="wire-menu-title">{label}</div>
-      <button onClick={props.onRoute} disabled={!props.link} title={props.t("contextMenu.insertRoutingHubTitle")}>
+      <button onClick={props.onRoute} disabled={props.readOnly || !props.link} title={props.t("contextMenu.insertRoutingHubTitle")}>
         <Route size={14} /> {props.t("contextMenu.insertRoutingHub")}
       </button>
-      <button onClick={props.onDelete} disabled={!props.link} title={props.t("contextMenu.deleteWireTitle")}>
+      <button onClick={props.onDelete} disabled={props.readOnly || !props.link} title={props.t("contextMenu.deleteWireTitle")}>
         <XCircle size={14} /> {props.t("contextMenu.deleteWire")}
       </button>
       <button onClick={props.onClose} title={props.t("contextMenu.closeWireMenu")}>{props.t("common.close")}</button>
@@ -4452,6 +4566,7 @@ function NodeContextMenu(props: {
   nodeCount: number;
   linkCount: number;
   hasBreakpoint: boolean;
+  readOnly: boolean;
   onDuplicate(): void;
   onDelete(): void;
   onBreakLinks(): void;
@@ -4468,19 +4583,19 @@ function NodeContextMenu(props: {
       onContextMenu={isolateOverlayContextMenu}
     >
       <div className="node-menu-title">{label}</div>
-      <button onClick={props.onDuplicate} disabled={!props.node} title={props.t("contextMenu.duplicateNodeSelectionTitle")}>
+      <button onClick={props.onDuplicate} disabled={props.readOnly || !props.node} title={props.t("contextMenu.duplicateNodeSelectionTitle")}>
         <Copy size={14} /> {props.t("contextMenu.duplicate")}
       </button>
-      <button onClick={props.onDelete} disabled={!props.node} title={props.t("contextMenu.deleteNodeSelectionTitle")}>
+      <button onClick={props.onDelete} disabled={props.readOnly || !props.node} title={props.t("contextMenu.deleteNodeSelectionTitle")}>
         <XCircle size={14} /> {props.t("contextMenu.delete")}
       </button>
-      <button onClick={props.onBreakLinks} disabled={!props.node || !props.linkCount} title={props.t("contextMenu.breakNodeSelectionLinksTitle")}>
+      <button onClick={props.onBreakLinks} disabled={props.readOnly || !props.node || !props.linkCount} title={props.t("contextMenu.breakNodeSelectionLinksTitle")}>
         <Unlink size={14} /> {props.t("contextMenu.breakLinks")}
       </button>
       <button onClick={props.onToggleBreakpoint} disabled={!props.node || props.nodeCount !== 1} title={props.t("contextMenu.toggleBreakpointTitle")}>
         <CircleDot size={14} /> {props.hasBreakpoint ? props.t("contextMenu.clearBreakpoint") : props.t("contextMenu.addBreakpoint")}
       </button>
-      <button onClick={props.onAddBookmark} disabled={!props.node || props.nodeCount !== 1} title={props.t("contextMenu.addNodeBookmarkTitle")}>
+      <button onClick={props.onAddBookmark} disabled={props.readOnly || !props.node || props.nodeCount !== 1} title={props.t("contextMenu.addNodeBookmarkTitle")}>
         <BookmarkPlus size={14} /> {props.t("contextMenu.addBookmark")}
       </button>
       <button onClick={props.onClose} title={props.t("contextMenu.closeNodeMenu")}>{props.t("common.close")}</button>
@@ -4492,6 +4607,7 @@ function CommentContextMenu(props: {
   t: Translator;
   position: Point;
   comment: BlueprintCommentBox | undefined;
+  readOnly: boolean;
   onFocus(): void;
   onRewrap(): void;
   onAddBookmark(): void;
@@ -4511,13 +4627,13 @@ function CommentContextMenu(props: {
       <button onClick={props.onFocus} disabled={!props.comment} title={props.t("contextMenu.focusCommentTitle")}>
         <Focus size={14} /> {props.t("contextMenu.focusComment")}
       </button>
-      <button onClick={props.onRewrap} disabled={!props.comment || !canRewrap} title={props.t("contextMenu.rewrapNodesTitle")}>
+      <button onClick={props.onRewrap} disabled={props.readOnly || !props.comment || !canRewrap} title={props.t("contextMenu.rewrapNodesTitle")}>
         <StickyNote size={14} /> {props.t("contextMenu.rewrapNodes")}
       </button>
-      <button onClick={props.onAddBookmark} disabled={!props.comment} title={props.t("contextMenu.addCommentBookmarkTitle")}>
+      <button onClick={props.onAddBookmark} disabled={props.readOnly || !props.comment} title={props.t("contextMenu.addCommentBookmarkTitle")}>
         <BookmarkPlus size={14} /> {props.t("contextMenu.addBookmark")}
       </button>
-      <button onClick={props.onDelete} disabled={!props.comment} title={props.t("contextMenu.deleteCommentTitle")}>
+      <button onClick={props.onDelete} disabled={props.readOnly || !props.comment} title={props.t("contextMenu.deleteCommentTitle")}>
         <XCircle size={14} /> {props.t("contextMenu.deleteComment")}
       </button>
       <button onClick={props.onClose} title={props.t("contextMenu.closeCommentMenu")}>{props.t("common.close")}</button>
@@ -4531,6 +4647,7 @@ function PortContextMenu(props: {
   node: BlueprintNodeInstance | undefined;
   port: BlueprintPortDefinition | undefined;
   linkCount: number;
+  readOnly: boolean;
   onBreakLinks(): void;
   onClose(): void;
 }): JSX.Element {
@@ -4543,7 +4660,7 @@ function PortContextMenu(props: {
       onContextMenu={isolateOverlayContextMenu}
     >
       <div className="port-menu-title">{label}</div>
-      <button onClick={props.onBreakLinks} disabled={!props.port || !props.linkCount} title={props.t("contextMenu.breakPortLinksTitle")}>
+      <button onClick={props.onBreakLinks} disabled={props.readOnly || !props.port || !props.linkCount} title={props.t("contextMenu.breakPortLinksTitle")}>
         <XCircle size={14} /> {props.t("contextMenu.breakLinks")} {props.linkCount ? `(${props.linkCount})` : ""}
       </button>
       <button onClick={props.onClose} title={props.t("contextMenu.closePortMenu")}>{props.t("common.close")}</button>
@@ -4896,6 +5013,7 @@ function TemplatePortSummary(props: { template: BlueprintNodeTemplate; t: Transl
 function CommentInspector(props: {
   comment: BlueprintCommentBox;
   t: Translator;
+  readOnly: boolean;
   onTitleChange(comment: BlueprintCommentBox, title: string): void;
   onSizeChange(comment: BlueprintCommentBox, size: { width: number; height: number }): void;
   onColorChange(comment: BlueprintCommentBox, color: string): void;
@@ -4911,7 +5029,7 @@ function CommentInspector(props: {
         <h3>{props.t("inspector.comment")}</h3>
         <label className="field">
           <span>{props.t("inspector.title")}</span>
-          <input value={props.comment.title} onChange={(event) => props.onTitleChange(props.comment, event.target.value)} />
+          <input value={props.comment.title} disabled={props.readOnly} onChange={(event) => props.onTitleChange(props.comment, event.target.value)} />
         </label>
         <label className="field">
           <span>{props.t("inspector.width")}</span>
@@ -4920,6 +5038,7 @@ function CommentInspector(props: {
             min={120}
             max={2400}
             value={props.comment.size.width}
+            disabled={props.readOnly}
             onChange={(event) => props.onSizeChange(props.comment, { ...props.comment.size, width: Number(event.target.value) })}
           />
         </label>
@@ -4930,6 +5049,7 @@ function CommentInspector(props: {
             min={80}
             max={1800}
             value={props.comment.size.height}
+            disabled={props.readOnly}
             onChange={(event) => props.onSizeChange(props.comment, { ...props.comment.size, height: Number(event.target.value) })}
           />
         </label>
@@ -4941,6 +5061,7 @@ function CommentInspector(props: {
             t={props.t}
             labelKey="selection.commentColors"
             titleKey="inspector.setCommentColor"
+            disabled={props.readOnly}
             onChange={(nextColor) => props.onColorChange(props.comment, nextColor)}
           />
         </div>
@@ -4958,6 +5079,7 @@ function Inspector(props: {
   t: Translator;
   locale: Locale;
   nodeLabelMode: NodeLabelMode;
+  readOnly: boolean;
   onIssueFocus(issue: ValidationIssue): void;
   onLiteralChange(node: BlueprintNodeInstance, port: BlueprintPortDefinition, value: unknown): void;
   onUnlink(node: BlueprintNodeInstance, port: BlueprintPortDefinition): void;
@@ -4969,9 +5091,9 @@ function Inspector(props: {
         <strong>{templateText.name}</strong>
         <span>{templateText.description}</span>
       </div>
-      <InspectorPortGroup title={props.t("inspector.controlInputs")} template={props.template} ports={props.template.controlInputs} node={props.node} graph={props.graph} t={props.t} locale={props.locale} nodeLabelMode={props.nodeLabelMode} onUnlink={props.onUnlink} />
-      <InspectorPortGroup title={props.t("inspector.inputs")} template={props.template} ports={props.template.inputs} node={props.node} graph={props.graph} t={props.t} locale={props.locale} nodeLabelMode={props.nodeLabelMode} onLiteralChange={props.onLiteralChange} onUnlink={props.onUnlink} />
-      <InspectorPortGroup title={props.t("inspector.outputs")} template={props.template} ports={props.template.outputs} node={props.node} graph={props.graph} t={props.t} locale={props.locale} nodeLabelMode={props.nodeLabelMode} />
+      <InspectorPortGroup title={props.t("inspector.controlInputs")} template={props.template} ports={props.template.controlInputs} node={props.node} graph={props.graph} t={props.t} locale={props.locale} nodeLabelMode={props.nodeLabelMode} readOnly={props.readOnly} onUnlink={props.onUnlink} />
+      <InspectorPortGroup title={props.t("inspector.inputs")} template={props.template} ports={props.template.inputs} node={props.node} graph={props.graph} t={props.t} locale={props.locale} nodeLabelMode={props.nodeLabelMode} readOnly={props.readOnly} onLiteralChange={props.onLiteralChange} onUnlink={props.onUnlink} />
+      <InspectorPortGroup title={props.t("inspector.outputs")} template={props.template} ports={props.template.outputs} node={props.node} graph={props.graph} t={props.t} locale={props.locale} nodeLabelMode={props.nodeLabelMode} readOnly={props.readOnly} />
       {props.issues.length ? (
         <div className="issue-list">
           {props.issues.map((issue) => (
@@ -5614,6 +5736,7 @@ function InspectorPortGroup(props: {
   t: Translator;
   locale: Locale;
   nodeLabelMode: NodeLabelMode;
+  readOnly: boolean;
   onLiteralChange?(node: BlueprintNodeInstance, port: BlueprintPortDefinition, value: unknown): void;
   onUnlink?(node: BlueprintNodeInstance, port: BlueprintPortDefinition): void;
 }): JSX.Element | null {
@@ -5635,10 +5758,10 @@ function InspectorPortGroup(props: {
               {linked || port.direction === "output" || port.flowKind === "control" ? (
                 <span className="linked-control">
                   <input disabled value={linked ? `${linked.fromNodeId}.${linked.fromPortId}` : port.type} />
-                  {linked ? <button type="button" title={props.t("inspector.disconnectPort", { port: portText.name })} onClick={() => props.onUnlink?.(props.node, port)}>{props.t("inspector.unlink")}</button> : null}
+                  {linked ? <button type="button" title={props.t("inspector.disconnectPort", { port: portText.name })} disabled={props.readOnly} onClick={() => props.onUnlink?.(props.node, port)}>{props.t("inspector.unlink")}</button> : null}
                 </span>
               ) : (
-                <PortEditor port={port} value={binding?.literalValue ?? port.defaultValue ?? ""} onChange={(value) => props.onLiteralChange?.(props.node, port, value)} />
+                <PortEditor port={port} value={binding?.literalValue ?? port.defaultValue ?? ""} disabled={props.readOnly} onChange={(value) => props.onLiteralChange?.(props.node, port, value)} />
               )}
               <span className="port-meta">
                 <small>{port.id}</small>
@@ -5665,24 +5788,24 @@ function formatPortDefaultValue(value: unknown): string {
   return serialized ?? String(value);
 }
 
-function PortEditor(props: { port: BlueprintPortDefinition; value: unknown; onChange(value: unknown): void }): JSX.Element {
+function PortEditor(props: { port: BlueprintPortDefinition; value: unknown; disabled?: boolean; onChange(value: unknown): void }): JSX.Element {
   if (props.port.constraints?.options?.length) {
     return (
-      <select value={String(props.value)} onChange={(event) => props.onChange(event.target.value)}>
+      <select value={String(props.value)} disabled={props.disabled} onChange={(event) => props.onChange(event.target.value)}>
         {props.port.constraints.options.map((option) => <option key={String(option)} value={String(option)}>{String(option)}</option>)}
       </select>
     );
   }
 
   if (props.port.editor === "boolean") {
-    return <input type="checkbox" checked={Boolean(props.value)} onChange={(event) => props.onChange(event.target.checked)} />;
+    return <input type="checkbox" checked={Boolean(props.value)} disabled={props.disabled} onChange={(event) => props.onChange(event.target.checked)} />;
   }
 
   if (props.port.editor === "number") {
-    return <input type="number" value={Number(props.value)} onChange={(event) => props.onChange(Number(event.target.value))} />;
+    return <input type="number" value={Number(props.value)} disabled={props.disabled} onChange={(event) => props.onChange(Number(event.target.value))} />;
   }
 
-  return <input value={String(props.value ?? "")} onChange={(event) => props.onChange(event.target.value)} />;
+  return <input value={String(props.value ?? "")} disabled={props.disabled} onChange={(event) => props.onChange(event.target.value)} />;
 }
 
 function findNodesInGraph(graph: BlueprintGraph, templates: BlueprintNodeTemplate[], query: string, t: Translator, locale: Locale): NodeFindResult[] {
