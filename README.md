@@ -29,9 +29,12 @@ npm run smoke
 npm run desktop:dev
 npm run tauri:dev
 npm run tauri:build
+python scripts/debug-launcher.py
 ```
 
 `npm run build` compiles `dist/shared` and the desktop frontend in `dist/desktop`. `npm run smoke` compiles the shared compiler core and runs the Gameplay example through the Node bridge. `npm run test:layout` runs Playwright layout screenshots, Selection Toolbox non-overlap checks, desktop template-source panel coverage, editor-preference reload persistence, plus large-graph browser benchmarks for 200, 500, and 1000 log nodes. `npm run test:packaged-persistence` builds a no-bundle release Tauri executable, drives it through WebView2 remote debugging with Playwright, restarts it, and verifies editor preferences survive the packaged-app restart while restoring the previous local desktop state. `npm run test:packaged-profile` uses the same packaged-app path to profile 500/1000 node large graphs in release WebView2, verify culling budgets, measure open/focus time, and restore the previous local active graph.
+
+`python scripts/debug-launcher.py` opens a dependency-free terminal launcher for the common development, validation, build, packaged-check, and setup commands. Use `python scripts/debug-launcher.py --list` to print action keys, or `python scripts/debug-launcher.py --run typecheck` to run one action directly.
 
 On Windows, `npm run tauri:dev` supports Node 20+ and both MSVC and GNU Rust toolchains. The Tauri dev helper starts `npm.cmd` through the Windows shell to satisfy Node's `.cmd` spawn rules, and the Rust desktop crate avoids exporting a `cdylib`, which prevents GNU linkers from hitting the PE DLL export-symbol limit.
 
