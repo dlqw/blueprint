@@ -6,5 +6,5 @@
     "moduleResolution": "Bundler",
     "types": ["vite/client", "vitest/globals"]
   },
-  "include": ["src/desktop/**/*.ts", "src/desktop/**/*.tsx", "src/webview/**/*.ts", "src/webview/**/*.tsx", "src/shared/**/*.ts"]
+  "include": ["../src/desktop/**/*.ts", "../src/desktop/**/*.tsx", "../src/webview/**/*.ts", "../src/webview/**/*.tsx", "../src/shared/**/*.ts"]
 }

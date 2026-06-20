@@ -6,10 +6,10 @@
   "license": "UNLICENSED",
   "scripts": {
     "clean": "rimraf dist",
-    "compile:shared": "tsc -p tsconfig.shared.json",
-    "compile:desktop": "vite build --config vite.desktop.config.ts",
+    "compile:shared": "tsc -p config/tsconfig.shared.json",
+    "compile:desktop": "vite build --config config/vite.desktop.config.ts",
     "build": "npm run compile:shared && npm run compile:desktop",
-    "desktop:dev": "vite --config vite.desktop.config.ts --host 127.0.0.1 --port 1420",
+    "desktop:dev": "vite --config config/vite.desktop.config.ts --host 127.0.0.1 --port 1420",
     "desktop:dev:tauri": "node scripts/desktop-dev-for-tauri.cjs",
     "desktop:build": "npm run build",
     "tauri:dev": "tauri dev",
@@ -19,9 +19,9 @@
     "test:packaged-profile": "node scripts/packaged-large-graph-profile.cjs",
     "smoke": "npm run compile:shared && node scripts/smoke-compile-example.cjs",
     "playwright:install": "playwright install chromium",
-    "test:layout": "playwright test",
-    "test:webview": "vitest run",
-    "typecheck": "tsc -p tsconfig.shared.json --noEmit && tsc -p tsconfig.desktop.json --noEmit"
+    "test:layout": "playwright test --config config/playwright.config.ts",
+    "test:webview": "vitest run --config config/vitest.config.ts",
+    "typecheck": "tsc -p config/tsconfig.shared.json --noEmit && tsc -p config/tsconfig.desktop.json --noEmit"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",

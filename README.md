@@ -7,6 +7,7 @@ Blueprint IDE is a Tauri 2 desktop visual node editor for TypeScript-oriented Bl
 - Desktop shell: `src-tauri` plus `src/desktop`.
 - Shared graph model, validation, built-ins, and compiler core: `src/shared`.
 - React graph editor surface: `src/webview`, hosted through a neutral editor host API and styled as a ComfyUI-like dark, compact, canvas-first workspace.
+- Tooling configuration: `config`.
 - Viewport math and canvas coordinate policy: `src/webview/canvasController.ts`.
 - Canvas interaction mode reducer: `src/webview/interactionState.ts`.
 - Floating overlay event isolation helpers: `src/webview/overlayEvents.ts`.
