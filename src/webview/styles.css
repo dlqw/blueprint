@@ -1996,11 +1996,9 @@ textarea:focus-visible {
   content: "";
   position: absolute;
   z-index: 1;
-  left: 0;
-  right: 0;
-  top: 0;
-  height: 2px;
-  background: color-mix(in srgb, var(--node-accent, #666) 52%, #333);
+  inset: 0;
+  border-top: 2px solid color-mix(in srgb, var(--node-accent, #666) 52%, #333);
+  border-radius: inherit;
   opacity: 0.72;
   pointer-events: none;
 }
@@ -2030,6 +2028,64 @@ textarea:focus-visible {
       rgba(0, 0, 0, 0.16) 7px 14px
     );
   pointer-events: none;
+}
+
+.node.runtime-active {
+  border-color: color-mix(in srgb, #76d9ff 62%, var(--node-accent, #76d9ff));
+  box-shadow:
+    0 0 0 1px rgba(118, 217, 255, 0.46),
+    0 0 0 5px rgba(118, 217, 255, 0.2),
+    0 0 22px rgba(77, 176, 255, 0.56),
+    0 12px 26px rgba(0, 0, 0, 0.56);
+  animation: runtime-node-halo 1.15s ease-in-out infinite;
+}
+
+.node.runtime-active::before {
+  opacity: 1;
+  border-top-color: rgba(190, 235, 255, 0.88);
+  box-shadow:
+    inset 0 0 0 1px rgba(118, 217, 255, 0.32),
+    inset 0 0 18px rgba(118, 217, 255, 0.12);
+}
+
+.node.runtime-active.selected {
+  animation-name: runtime-node-selected-halo;
+}
+
+@keyframes runtime-node-halo {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(118, 217, 255, 0.42),
+      0 0 0 4px rgba(118, 217, 255, 0.18),
+      0 0 18px rgba(77, 176, 255, 0.46),
+      0 12px 26px rgba(0, 0, 0, 0.56);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(190, 235, 255, 0.64),
+      0 0 0 8px rgba(118, 217, 255, 0.28),
+      0 0 30px rgba(77, 176, 255, 0.68),
+      0 12px 26px rgba(0, 0, 0, 0.56);
+  }
+}
+
+@keyframes runtime-node-selected-halo {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.54),
+      0 0 0 5px rgba(118, 217, 255, 0.2),
+      0 0 20px rgba(77, 176, 255, 0.5),
+      0 12px 26px rgba(0, 0, 0, 0.56);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.72),
+      0 0 0 9px rgba(118, 217, 255, 0.3),
+      0 0 32px rgba(77, 176, 255, 0.72),
+      0 12px 26px rgba(0, 0, 0, 0.56);
+  }
 }
 
 .runtime-badge {

@@ -3194,7 +3194,8 @@ function BlueprintNode(props: {
   const disabled = node.displayOverrides?.disabled === true;
   const width = renderedNodeWidth(template, node);
   const height = renderedNodeHeight(template, node);
-  const className = `${props.selected ? "node selected" : "node"}${compact ? " routing-hub" : ""}${disabled ? " disabled" : ""}`;
+  const runtimeClassName = props.runtimeStatus ? ` runtime-${props.runtimeStatus}` : "";
+  const className = `${props.selected ? "node selected" : "node"}${compact ? " routing-hub" : ""}${disabled ? " disabled" : ""}${runtimeClassName}`;
   const nodeStyle = {
     left: node.position.x,
     top: node.position.y,
