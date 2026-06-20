@@ -458,6 +458,7 @@ export function App(props: AppProps = {}): JSX.Element {
   const [refactorResult, setRefactorResult] = useState<RefactorResultMessage | undefined>();
   const [activeRuntimeTraceIndex, setActiveRuntimeTraceIndex] = useState<number | undefined>();
   const [isRuntimeRunning, setIsRuntimeRunning] = useState(false);
+  const activeRuntimeRunIdRef = useRef<string | undefined>();
   const [breakpoints, setBreakpoints] = useState<BlueprintBreakpoint[]>(() => readBreakpoints(hostClient.getState()));
   const [categoryAccents, setCategoryAccents] = useState<CategoryAccentMap>({});
   const [templateRegistrySources, setTemplateRegistrySources] = useState<TemplateRegistrySourceSummary[]>([]);
@@ -850,6 +851,10 @@ export function App(props: AppProps = {}): JSX.Element {
         setRuntimeQueueStatus(message.status);
         setIsRuntimeRunning(message.status.running);
       } else if (message.type === "runtimeResult") {
+        if (message.runId && activeRuntimeRunIdRef.current && message.runId !== activeRuntimeRunIdRef.current) {
+          return;
+        }
+        activeRuntimeRunIdRef.current = undefined;
         setIsRuntimeRunning(false);
         setRuntimeQueueStatus((current) => current.queuedRuns ? { ...current, running: false } : { running: false, queuedRuns: 0 });
         setRefactorResult(undefined);
@@ -871,11 +876,18 @@ export function App(props: AppProps = {}): JSX.Element {
           return next;
         });
         setRuntimeNodeStatus(runtimeStatusByNodeId(graphRef.current?.id, message.traces));
+        const interruptTrace = [...message.traces].reverse().find((trace) => trace.status === "breakpoint" || trace.status === "error");
+        if (interruptTrace) {
+          focusNodeById(interruptTrace.nodeId);
+        }
         if (!message.ok && message.issues?.length) {
           setFocusedIssueKey(undefined);
           setIssues(message.issues);
         }
       } else if (message.type === "runtimeTrace") {
+        if (message.runId && activeRuntimeRunIdRef.current && message.runId !== activeRuntimeRunIdRef.current) {
+          return;
+        }
         setRuntimeNodeStatus((current) => applyRuntimeTraceStatus(graphRef.current?.id, current, message.trace));
       } else if (message.type === "focusNode") {
         focusNodeById(message.nodeId);
@@ -2119,23 +2131,27 @@ export function App(props: AppProps = {}): JSX.Element {
 
   const requestRun = () => {
     if (graph) {
+      const runId = `run-${Date.now().toString(36)}`;
+      activeRuntimeRunIdRef.current = runId;
       setIsRuntimeRunning(true);
       setRuntimeQueueStatus({ running: true, queuedRuns: 0 });
       setRuntimeNodeStatus(new Map());
       setRuntimeOutput(undefined);
       setActiveRuntimeTraceIndex(undefined);
-      hostClient.requestRunGraph(graph, { breakpoints: breakpointsForRun(graph, breakpoints) });
+      hostClient.requestRunGraph(graph, { runId, breakpoints: breakpointsForRun(graph, breakpoints) });
     }
   };
 
   const requestStepRun = () => {
     if (graph) {
+      const runId = `run-${Date.now().toString(36)}`;
+      activeRuntimeRunIdRef.current = runId;
       setIsRuntimeRunning(true);
       setRuntimeQueueStatus({ running: true, queuedRuns: 0 });
       setRuntimeNodeStatus(new Map());
       setRuntimeOutput(undefined);
       setActiveRuntimeTraceIndex(undefined);
-      hostClient.requestRunGraph(graph, { breakpoints: breakpointsForRun(graph, breakpoints), stepMode: true });
+      hostClient.requestRunGraph(graph, { runId, breakpoints: breakpointsForRun(graph, breakpoints), stepMode: true });
     }
   };
 

@@ -322,7 +322,7 @@ export type EditorToHostMessage =
   | { type: "requestTemplates" }
   | { type: "requestValidation"; graph: BlueprintGraph }
   | { type: "requestCompile"; graph: BlueprintGraph }
-  | { type: "requestRun"; graph: BlueprintGraph; breakpoints?: BlueprintBreakpointSpec[]; stepMode?: boolean }
+  | { type: "requestRun"; graph: BlueprintGraph; runId?: string; breakpoints?: BlueprintBreakpointSpec[]; stepMode?: boolean }
   | { type: "requestCancelRun" }
   | { type: "requestRuntimeStep" }
   | { type: "requestRuntimeContinue" }
@@ -346,8 +346,8 @@ export type HostToEditorMessage =
   | { type: "compileResult"; ok: boolean; message: string; issues?: ValidationIssue[] }
   | { type: "refactorResult"; ok: boolean; message: string }
   | { type: "runtimeQueueStatus"; status: RuntimeQueueStatus }
-  | { type: "runtimeTrace"; trace: RuntimeTraceEvent }
-  | { type: "runtimeResult"; ok: boolean; message: string; stdout: string; stderr: string; durationMs: number; traces: RuntimeTraceEvent[]; issues?: ValidationIssue[] }
+  | { type: "runtimeTrace"; runId?: string; trace: RuntimeTraceEvent }
+  | { type: "runtimeResult"; runId?: string; ok: boolean; message: string; stdout: string; stderr: string; durationMs: number; traces: RuntimeTraceEvent[]; issues?: ValidationIssue[] }
   | { type: "focusNode"; nodeId: string }
   | { type: "runCommand"; commandId: string };
 

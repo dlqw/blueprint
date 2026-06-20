@@ -11,7 +11,7 @@ export interface EditorHostClient {
   requestTemplates(): void;
   requestValidation(graph: BlueprintGraph): void;
   requestCompileGraph(graph: BlueprintGraph): void;
-  requestRunGraph(graph: BlueprintGraph, options?: { breakpoints?: BlueprintBreakpointSpec[]; stepMode?: boolean }): void;
+  requestRunGraph(graph: BlueprintGraph, options?: { runId?: string; breakpoints?: BlueprintBreakpointSpec[]; stepMode?: boolean }): void;
   requestCancelRun(): void;
   requestRuntimeStep(): void;
   requestRuntimeContinue(): void;
@@ -58,7 +58,7 @@ export function createEditorHostClient(hostApi: EditorHostApi | undefined): Edit
       post({ type: "requestCompile", graph });
     },
     requestRunGraph(graph, options) {
-      post({ type: "requestRun", graph, breakpoints: options?.breakpoints, stepMode: options?.stepMode });
+      post({ type: "requestRun", graph, runId: options?.runId ?? `run-${Date.now().toString(36)}`, breakpoints: options?.breakpoints, stepMode: options?.stepMode });
     },
     requestCancelRun() {
       post({ type: "requestCancelRun" });

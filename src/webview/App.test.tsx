@@ -1591,11 +1591,22 @@ describe("Blueprint webview App", () => {
     const runRequest = postedMessages.filter((message) => message.type === "requestRun").at(-1);
     expect(runRequest?.type).toBe("requestRun");
     expect(runRequest?.graph.id).toBe(graph.id);
+    expect(runRequest?.runId).toEqual(expect.stringMatching(/^run-/));
     expect(screen.getByText("Pending")).toBeInTheDocument();
 
     window.dispatchEvent(new MessageEvent("message", {
       data: {
         type: "runtimeTrace",
+        runId: "stale-run",
+        trace: { graphId: graph.id, nodeId: "log1", nodeName: "Log", status: "active", timestamp: 0 }
+      }
+    }));
+    expect(screen.queryByTitle("Running: active")).not.toBeInTheDocument();
+
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        type: "runtimeTrace",
+        runId: runRequest?.runId,
         trace: { graphId: graph.id, nodeId: "entry", nodeName: "Function Entry", status: "active", timestamp: 1 }
       }
     }));
@@ -1607,6 +1618,7 @@ describe("Blueprint webview App", () => {
     window.dispatchEvent(new MessageEvent("message", {
       data: {
         type: "runtimeTrace",
+        runId: runRequest?.runId,
         trace: { graphId: graph.id, nodeId: "log1", nodeName: "Log", status: "active", timestamp: 2 }
       }
     }));
@@ -1620,6 +1632,7 @@ describe("Blueprint webview App", () => {
     window.dispatchEvent(new MessageEvent("message", {
       data: {
         type: "runtimeResult",
+        runId: runRequest?.runId,
         ok: true,
         message: "Run completed.",
         stdout: "Hello Blueprint\n",
@@ -1892,6 +1905,7 @@ describe("Blueprint webview App", () => {
     fireEvent.click(within(runtimeToolbar).getByTitle("Step run"));
     const runRequest = postedMessages.filter((message) => message.type === "requestRun").at(-1);
     expect(runRequest?.type).toBe("requestRun");
+    expect(runRequest?.runId).toEqual(expect.stringMatching(/^run-/));
     expect(runRequest?.stepMode).toBe(true);
     expect(screen.getByTitle(/step runtime/i)).toBeInTheDocument();
     expect(screen.getByText("Pending")).toBeInTheDocument();
@@ -1899,6 +1913,7 @@ describe("Blueprint webview App", () => {
     window.dispatchEvent(new MessageEvent("message", {
       data: {
         type: "runtimeTrace",
+        runId: runRequest?.runId,
         trace: { graphId: graph.id, nodeId: "entry", nodeName: "Function Entry", status: "paused", timestamp: 1 }
       }
     }));
@@ -1932,11 +1947,13 @@ describe("Blueprint webview App", () => {
     fireEvent.click(screen.getByTitle(/run graph/i));
     const runRequest = postedMessages.filter((message) => message.type === "requestRun").at(-1);
     expect(runRequest?.type).toBe("requestRun");
+    expect(runRequest?.runId).toEqual(expect.stringMatching(/^run-/));
     expect(runRequest?.breakpoints).toEqual([{ nodeId: "entry", condition: "hit >= 2" }]);
 
     window.dispatchEvent(new MessageEvent("message", {
       data: {
         type: "runtimeResult",
+        runId: runRequest?.runId,
         ok: false,
         message: "Breakpoint hit at Function Entry",
         stdout: "",

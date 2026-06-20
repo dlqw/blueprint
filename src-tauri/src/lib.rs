@@ -2,16 +2,30 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
 use std::fs;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
-use tauri::{path::BaseDirectory, Manager};
+use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
+use tauri::{path::BaseDirectory, Emitter, Manager};
 
 #[derive(Serialize)]
 struct BlueprintShellStatus {
     shell: &'static str,
     version: &'static str,
     primary_path: bool,
+}
+
+#[derive(Default)]
+struct RuntimeBridgeState {
+    active: Mutex<Option<RuntimeBridgeSession>>,
+}
+
+struct RuntimeBridgeSession {
+    run_id: String,
+    child: Arc<Mutex<Child>>,
+    stdin: Arc<Mutex<ChildStdin>>,
 }
 
 #[derive(Deserialize)]
@@ -199,10 +213,94 @@ fn blueprint_compile_graph(
 #[tauri::command]
 fn blueprint_run_graph(
     app: tauri::AppHandle,
+    state: tauri::State<'_, RuntimeBridgeState>,
     graph: Value,
     graph_path: Option<String>,
+    run_id: Option<String>,
+    breakpoints: Option<Value>,
+    step_mode: Option<bool>,
 ) -> Result<Value, String> {
-    run_desktop_blueprint_bridge(&app, "run", graph, graph_path)
+    run_desktop_blueprint_runtime(&app, &state, graph, graph_path, run_id, breakpoints, step_mode)
+}
+
+#[tauri::command]
+fn blueprint_runtime_step(state: tauri::State<'_, RuntimeBridgeState>, run_id: Option<String>) -> Result<(), String> {
+    write_runtime_command(&state, run_id.as_deref(), "step\n")
+}
+
+#[tauri::command]
+fn blueprint_runtime_continue(state: tauri::State<'_, RuntimeBridgeState>, run_id: Option<String>) -> Result<(), String> {
+    write_runtime_command(&state, run_id.as_deref(), "continue\n")
+}
+
+#[tauri::command]
+fn blueprint_cancel_runtime_run(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, RuntimeBridgeState>,
+    run_id: Option<String>,
+) -> Result<(), String> {
+    let session = {
+        let mut active = state
+            .active
+            .lock()
+            .map_err(|_| "failed to lock runtime bridge state".to_string())?;
+        if let Some(session) = active.as_ref() {
+            if run_id.as_deref().is_some_and(|expected| expected != session.run_id) {
+                return Ok(());
+            }
+        }
+        active.take()
+    };
+    if let Some(session) = session {
+        let canceled_run_id = session.run_id.clone();
+        let _ = session
+            .child
+            .lock()
+            .map_err(|_| "failed to lock runtime child".to_string())?
+            .kill();
+        let _ = app.emit(
+            "blueprint-runtime-result",
+            serde_json::json!({
+                "runId": canceled_run_id,
+                "ok": false,
+                "message": "Run canceled.",
+                "stdout": "",
+                "stderr": "",
+                "durationMs": 0,
+                "traces": []
+            }),
+        );
+    }
+    Ok(())
+}
+
+fn write_runtime_command(
+    state: &tauri::State<'_, RuntimeBridgeState>,
+    run_id: Option<&str>,
+    command: &str,
+) -> Result<(), String> {
+    let stdin = {
+        let active = state
+            .active
+            .lock()
+            .map_err(|_| "failed to lock runtime bridge state".to_string())?;
+        let session = active
+            .as_ref()
+            .ok_or_else(|| "no Blueprint runtime run is active".to_string())?;
+        if run_id.is_some_and(|expected| expected != session.run_id) {
+            return Ok(());
+        }
+        Arc::clone(&session.stdin)
+    };
+    let mut stdin = stdin
+        .lock()
+        .map_err(|_| "failed to lock runtime stdin".to_string())?;
+    stdin
+        .write_all(command.as_bytes())
+        .map_err(|error| format!("failed to write runtime command: {error}"))?;
+    stdin
+        .flush()
+        .map_err(|error| format!("failed to flush runtime command: {error}"))
 }
 
 #[tauri::command]
@@ -908,6 +1006,169 @@ fn run_desktop_blueprint_bridge(
     run_desktop_blueprint_bridge_request(app, request)
 }
 
+fn run_desktop_blueprint_runtime(
+    app: &tauri::AppHandle,
+    state: &tauri::State<'_, RuntimeBridgeState>,
+    graph: Value,
+    graph_path: Option<String>,
+    run_id: Option<String>,
+    breakpoints: Option<Value>,
+    step_mode: Option<bool>,
+) -> Result<Value, String> {
+    let run_id = run_id.unwrap_or_else(|| "runtime-run".to_string());
+    {
+        let active = state
+            .active
+            .lock()
+            .map_err(|_| "failed to lock runtime bridge state".to_string())?;
+        if active.is_some() {
+            return Err("a Blueprint runtime run is already active".to_string());
+        }
+    }
+
+    let request = serde_json::json!({
+        "action": "run",
+        "graph": graph,
+        "graphPath": graph_path,
+        "runId": run_id,
+        "breakpoints": breakpoints,
+        "stepMode": step_mode.unwrap_or(false),
+    });
+    let bridge_root = bridge_workspace_root(app)?;
+    let mut child = Command::new(if cfg!(windows) { "node.exe" } else { "node" })
+        .arg("scripts/desktop-blueprint-bridge.cjs")
+        .current_dir(&bridge_root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| {
+            format!(
+                "failed to start desktop Blueprint bridge from {}: {error}",
+                bridge_root.display()
+            )
+        })?;
+
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "failed to open desktop Blueprint bridge stdin".to_string())?;
+    stdin
+        .write_all(
+            format!(
+                "{}\n",
+                serde_json::to_string(&request)
+                    .map_err(|error| format!("failed to serialize bridge request: {error}"))?
+            )
+            .as_bytes(),
+        )
+        .map_err(|error| format!("failed to write desktop Blueprint bridge request: {error}"))?;
+    stdin
+        .flush()
+        .map_err(|error| format!("failed to flush desktop Blueprint bridge request: {error}"))?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "failed to open desktop Blueprint bridge stdout".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "failed to open desktop Blueprint bridge stderr".to_string())?;
+    let child = Arc::new(Mutex::new(child));
+    let stdin = Arc::new(Mutex::new(stdin));
+    {
+        let mut active = state
+            .active
+            .lock()
+            .map_err(|_| "failed to lock runtime bridge state".to_string())?;
+        *active = Some(RuntimeBridgeSession {
+            run_id: run_id.clone(),
+            child: Arc::clone(&child),
+            stdin,
+        });
+    }
+
+    let app_for_stdout = app.clone();
+    thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines().map_while(Result::ok) {
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(value) = serde_json::from_str::<Value>(&line) {
+                let event_name = value
+                    .get("event")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                if event_name == "runtimeTrace" {
+                    let _ = app_for_stdout.emit("blueprint-runtime-trace", value.get("payload").cloned().unwrap_or(Value::Null));
+                } else if event_name == "runtimeResult" {
+                    let payload = value.get("payload").cloned().unwrap_or(Value::Null);
+                    let _ = app_for_stdout.emit("blueprint-runtime-result", payload.clone());
+                    let result_run_id = payload
+                        .get("runId")
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                    let state = app_for_stdout.state::<RuntimeBridgeState>();
+                    if let Ok(mut active) = state.active.lock() {
+                        if active.as_ref().is_some_and(|session| Some(session.run_id.as_str()) == result_run_id.as_deref()) {
+                            active.take();
+                        }
+                    };
+                }
+            }
+        }
+    });
+
+    thread::spawn(move || {
+        let reader = BufReader::new(stderr);
+        for line in reader.lines().map_while(Result::ok) {
+            eprintln!("{line}");
+        }
+    });
+
+    let app_for_wait = app.clone();
+    let child_for_wait = Arc::clone(&child);
+    let run_id_for_wait = run_id.clone();
+    thread::spawn(move || loop {
+        let exited = child_for_wait
+            .lock()
+            .ok()
+            .and_then(|mut child| child.try_wait().ok())
+            .flatten()
+            .is_some();
+        if exited {
+            let state = app_for_wait.state::<RuntimeBridgeState>();
+            if let Ok(mut active) = state.active.lock() {
+                if active.as_ref().is_some_and(|session| session.run_id == run_id_for_wait) {
+                    active.take();
+                    let _ = app_for_wait.emit(
+                        "blueprint-runtime-result",
+                        serde_json::json!({
+                            "runId": run_id_for_wait,
+                            "ok": false,
+                            "message": "Runtime bridge exited before producing a result.",
+                            "stdout": "",
+                            "stderr": "",
+                            "durationMs": 0,
+                            "traces": []
+                        }),
+                    );
+                }
+            };
+            break;
+        }
+        thread::sleep(Duration::from_millis(100));
+    });
+
+    Ok(serde_json::json!({
+        "ok": true,
+        "message": "Blueprint runtime run started.",
+        "runId": request.get("runId").cloned().unwrap_or(Value::Null)
+    }))
+}
+
 fn run_desktop_blueprint_bridge_request(
     app: &tauri::AppHandle,
     request: Value,
@@ -1094,6 +1355,7 @@ fn first_solution_in_folder(folder: &std::path::Path) -> Option<PathBuf> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .manage(RuntimeBridgeState::default())
         .setup(|app| {
             if let Some(icon) = app.default_window_icon() {
                 if let Some(window) = app.get_webview_window("main") {
@@ -1115,6 +1377,9 @@ pub fn run() {
             blueprint_compile_graph,
             blueprint_load_project_templates,
             blueprint_run_graph,
+            blueprint_runtime_step,
+            blueprint_runtime_continue,
+            blueprint_cancel_runtime_run,
             blueprint_create_solution,
             blueprint_create_project,
             blueprint_rename_project,

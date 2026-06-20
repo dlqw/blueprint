@@ -956,9 +956,12 @@ async function waitForRuntimeStep(graphId: string, nodeId: string, nodeName: str
   if (continueRuntime) {
     return;
   }
+  process.stdin.ref?.();
+  process.stdin.resume();
   console.error(\`\${tracePrefix}\${JSON.stringify({ graphId, nodeId, nodeName, status: "paused", context, timestamp: Date.now() })}\`);
   await new Promise<void>((resolve) => pendingStepResolvers.push(resolve));
   process.stdin.pause();
+  process.stdin.unref?.();
 }
 
 function startStepInput(): void {
@@ -968,21 +971,30 @@ function startStepInput(): void {
   stdinStarted = true;
   process.stdin.setEncoding("utf8");
   process.stdin.resume();
-  process.stdin.unref?.();
+  let commandRemainder = "";
   process.stdin.on("data", (chunk) => {
-    const command = String(chunk).trim().toLowerCase();
-    if (command === "continue" || command === "resume") {
-      continueRuntime = true;
-      while (pendingStepResolvers.length) {
-        pendingStepResolvers.shift()?.();
+    commandRemainder = \`\${commandRemainder}\${String(chunk)}\`;
+    const commands = commandRemainder.split(/\\r?\\n/);
+    commandRemainder = commands.pop() ?? "";
+    for (const rawCommand of commands) {
+      const command = rawCommand.trim().toLowerCase();
+      if (command === "continue" || command === "resume") {
+        continueRuntime = true;
+        while (pendingStepResolvers.length) {
+          pendingStepResolvers.shift()?.();
+        }
+        process.stdin.pause();
+        process.stdin.unref?.();
+        process.stdin.removeAllListeners("data");
+        return;
       }
-      process.stdin.pause();
-      process.stdin.removeAllListeners("data");
-      return;
-    }
-    pendingStepResolvers.shift()?.();
-    if (!pendingStepResolvers.length) {
-      process.stdin.pause();
+      if (command === "step") {
+        pendingStepResolvers.shift()?.();
+        if (!pendingStepResolvers.length) {
+          process.stdin.pause();
+          process.stdin.unref?.();
+        }
+      }
     }
   });
 }

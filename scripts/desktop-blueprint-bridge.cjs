@@ -1,6 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
+const { spawn } = require("node:child_process");
 
 const root = path.resolve(__dirname, "..");
 
@@ -10,7 +10,7 @@ main().catch((error) => {
 });
 
 async function main() {
-  const request = JSON.parse(fs.readFileSync(0, "utf8"));
+  const request = await readBridgeRequest();
   const { compileGraphsToProject } = require("../dist/shared/compilerCore.js");
   const { getBuiltinTemplates } = require("../dist/shared/builtins.js");
   const { extractBlueprintTemplatesFromTypeScript } = require("../dist/shared/templateSource.js");
@@ -73,25 +73,142 @@ async function main() {
   }
 
   const started = Date.now();
-  const run = spawnSync("npx", ["tsx", path.basename(entry)], {
+  await runGeneratedEntry(entry, request, started);
+}
+
+function runGeneratedEntry(entry, request, started) {
+  const traces = [];
+  const stdoutChunks = [];
+  const stderrChunks = [];
+  const tracePrefix = "__BLUEPRINT_TRACE__";
+  const run = spawn("npx", ["tsx", path.basename(entry)], {
     cwd: path.dirname(entry),
     encoding: "utf8",
-    shell: process.platform === "win32"
+    shell: process.platform === "win32",
+    env: {
+      ...process.env,
+      BLUEPRINT_TRACE: "1",
+      BLUEPRINT_STEP: request.stepMode ? "1" : undefined,
+      BLUEPRINT_BREAKPOINTS: Array.isArray(request.breakpoints) ? JSON.stringify(request.breakpoints) : undefined
+    },
+    stdio: ["pipe", "pipe", "pipe"]
   });
 
-  writeJson({
-    ok: run.status === 0,
-    message: run.status === 0 ? `Ran ${path.basename(entry)}.` : `Run failed with exit code ${run.status ?? 1}.`,
-    stdout: run.stdout,
-    stderr: run.stderr,
-    durationMs: Date.now() - started,
-    traces: [],
-    issues: []
+  let stderrRemainder = "";
+  run.stdout.on("data", (chunk) => {
+    stdoutChunks.push(String(chunk));
+  });
+  run.stderr.on("data", (chunk) => {
+    stderrRemainder = consumeTraceLines(`${stderrRemainder}${String(chunk)}`, tracePrefix, traces, stderrChunks, request.runId);
+  });
+  process.stdin.setEncoding("utf8");
+  process.stdin.resume();
+  let controlRemainder = "";
+  process.stdin.on("data", (chunk) => {
+    if (!run.stdin.writable) {
+      return;
+    }
+    controlRemainder = `${controlRemainder}${String(chunk)}`;
+    const commands = controlRemainder.split(/\r?\n/);
+    controlRemainder = commands.pop() ?? "";
+    for (const rawCommand of commands) {
+      const command = rawCommand.trim().toLowerCase();
+      if (command === "step" || command === "continue" || command === "resume") {
+        run.stdin.write(`${command}\n`);
+      } else if (command === "cancel") {
+        run.kill();
+      }
+    }
+  });
+
+  return new Promise((resolve) => {
+    run.on("error", (error) => {
+      emitRuntimeResult({
+        runId: request.runId,
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+        stdout: stdoutChunks.join(""),
+        stderr: [...stderrChunks, stderrRemainder].join(""),
+        durationMs: Date.now() - started,
+        traces,
+        issues: []
+      });
+      resolve();
+    });
+    run.on("close", (code, signal) => {
+      if (stderrRemainder) {
+        stderrChunks.push(stderrRemainder);
+      }
+      const canceled = signal === "SIGTERM" || signal === "SIGKILL";
+      emitRuntimeResult({
+        runId: request.runId,
+        ok: code === 0 && !canceled,
+        message: canceled ? "Run canceled." : code === 0 ? `Ran ${path.basename(entry)}.` : `Run failed with exit code ${code ?? 1}.`,
+        stdout: stdoutChunks.join(""),
+        stderr: stderrChunks.join(""),
+        durationMs: Date.now() - started,
+        traces,
+        issues: []
+      });
+      resolve();
+    });
   });
 }
 
 function writeJson(value) {
   process.stdout.write(JSON.stringify(value));
+}
+
+function writeEvent(event, payload) {
+  process.stdout.write(`${JSON.stringify({ event, payload })}\n`);
+}
+
+function emitRuntimeResult(payload) {
+  writeEvent("runtimeResult", payload);
+}
+
+function consumeTraceLines(buffer, tracePrefix, traces, stderrChunks, runId) {
+  const lines = buffer.split(/\r?\n/);
+  const remainder = lines.pop() ?? "";
+  for (const line of lines) {
+    if (!line.startsWith(tracePrefix)) {
+      stderrChunks.push(`${line}\n`);
+      continue;
+    }
+    try {
+      const trace = JSON.parse(line.slice(tracePrefix.length));
+      traces.push(trace);
+      writeEvent("runtimeTrace", { runId, trace });
+    } catch {
+      stderrChunks.push(`${line}\n`);
+    }
+  }
+  return remainder;
+}
+
+function readBridgeRequest() {
+  return new Promise((resolve, reject) => {
+    let input = "";
+    const finish = () => {
+      const firstLine = input.split(/\r?\n/)[0]?.trim() || input.trim();
+      try {
+        resolve(JSON.parse(firstLine));
+      } catch (error) {
+        reject(error);
+      }
+    };
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => {
+      input += chunk;
+      if (input.includes("\n")) {
+        process.stdin.pause();
+        process.stdin.removeAllListeners("end");
+        process.stdin.removeAllListeners("data");
+        finish();
+      }
+    });
+    process.stdin.on("end", finish);
+  });
 }
 
 function findProjectPathForGraph(graphPath) {

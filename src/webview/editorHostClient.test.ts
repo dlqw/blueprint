@@ -36,7 +36,7 @@ describe("createEditorHostClient", () => {
 
     expect(messages).toEqual([
       { type: "requestCompile", graph },
-      { type: "requestRun", graph, breakpoints: [{ nodeId: "score", condition: "hit >= 2" }], stepMode: true },
+      { type: "requestRun", graph, runId: expect.stringMatching(/^run-/), breakpoints: [{ nodeId: "score", condition: "hit >= 2" }], stepMode: true },
       { type: "requestRuntimeStep" },
       { type: "requestRuntimeContinue" },
       { type: "requestCancelRun" },

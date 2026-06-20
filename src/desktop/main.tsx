@@ -1,6 +1,7 @@
 import * as React from "react";
 import { createRoot } from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Bug, ChevronDown, ChevronRight, CircleDot, ClipboardPaste, Command, Copy, FileJson, FolderOpen, GitBranch, Maximize2, Minus, Package as PackageIcon, PanelLeft, PanelRight, Play, Plus, Redo2, RefreshCw, Search, Settings, Trash2, Undo2, X } from "lucide-react";
@@ -9,8 +10,10 @@ import { extractCollapsedUnitToProjectGraph } from "../shared/collapse";
 import {
   BlueprintGraph,
   BlueprintGraphSearchEntry,
+  BlueprintBreakpointSpec,
   BlueprintNodeTemplate,
   BlueprintProject,
+  RuntimeTraceEvent,
   BlueprintSolutionGraphSearchIndex,
   BlueprintSolutionOutline,
   EditorToHostMessage,
@@ -67,6 +70,23 @@ interface PendingRuntimeRun {
   id: string;
   graph: BlueprintGraph;
   graphPath?: string;
+  breakpoints?: BlueprintBreakpointSpec[];
+  stepMode?: boolean;
+}
+
+interface BlueprintRuntimeTracePayload {
+  runId?: string;
+  trace: RuntimeTraceEvent;
+}
+
+interface BlueprintRuntimeResultPayload {
+  runId?: string;
+  ok: boolean;
+  message: string;
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+  traces: RuntimeTraceEvent[];
 }
 
 interface DesktopRunStatus {
@@ -107,6 +127,18 @@ const desktopApi = createDesktopWebviewApi((message) => {
 });
 
 window.blueprintEditorHostApi = desktopApi;
+
+void listen<BlueprintRuntimeTracePayload>("blueprint-runtime-trace", (event) => {
+  sendToEditor({ type: "runtimeTrace", runId: event.payload.runId, trace: event.payload.trace });
+}).catch((error: unknown) => {
+  console.warn("Runtime trace events are unavailable.", error);
+});
+
+void listen<BlueprintRuntimeResultPayload>("blueprint-runtime-result", (event) => {
+  completeRuntimeRun(event.payload);
+}).catch((error: unknown) => {
+  console.warn("Runtime result events are unavailable.", error);
+});
 
 function hasTauriWindowRuntime(): boolean {
   const internals = (window as typeof window & {
@@ -290,16 +322,47 @@ async function handleEditorMessage(message: EditorToHostMessage): Promise<void> 
   }
 
   if (message.type === "requestRun") {
-    enqueueRuntimeRun(message.graph);
+    enqueueRuntimeRun(message.graph, {
+      runId: message.runId,
+      breakpoints: message.breakpoints,
+      stepMode: message.stepMode
+    });
+    return;
+  }
+
+  if (message.type === "requestRuntimeStep") {
+    await tauriBlueprintHost.runtimeStep(activeRuntimeRun?.id).catch((error: unknown) => {
+      console.error(error);
+    });
+    return;
+  }
+
+  if (message.type === "requestRuntimeContinue") {
+    await tauriBlueprintHost.runtimeContinue(activeRuntimeRun?.id).catch((error: unknown) => {
+      console.error(error);
+    });
+    return;
+  }
+
+  if (message.type === "requestCancelRun") {
+    pendingRuntimeRuns.length = 0;
+    await tauriBlueprintHost.cancelRuntimeRun(activeRuntimeRun?.id).catch((error: unknown) => {
+      console.error(error);
+    });
+    if (!activeRuntimeRun) {
+      publishRuntimeQueueStatus();
+    }
     return;
   }
 }
 
-function enqueueRuntimeRun(graph: BlueprintGraph): void {
+function enqueueRuntimeRun(graph: BlueprintGraph, options: { runId?: string; breakpoints?: BlueprintBreakpointSpec[]; stepMode?: boolean } = {}): void {
   pendingRuntimeRuns.push({
-    id: `run-${++runtimeRunSequence}`,
+    id: options.runId ?? `run-${++runtimeRunSequence}`,
     graph,
-    graphPath: activeGraphPath
+    graphPath: activeGraphPath,
+    breakpoints: options.breakpoints,
+    stepMode: options.stepMode
   });
   publishRuntimeQueueStatus();
   void drainRuntimeRunQueue();
@@ -317,15 +380,27 @@ async function drainRuntimeRunQueue(): Promise<void> {
 
   activeRuntimeRun = nextRun;
   publishRuntimeQueueStatus();
-  const result = await tauriBlueprintHost.runGraph(nextRun.graph, nextRun.graphPath).catch((error: unknown) => ({
-    ok: false,
-    message: error instanceof Error ? error.message : String(error),
-    stdout: "",
-    stderr: "",
-    durationMs: 0,
-    traces: [],
-    issues: []
-  }));
+  await tauriBlueprintHost.runGraph(nextRun.graph, nextRun.graphPath, {
+    runId: nextRun.id,
+    breakpoints: nextRun.breakpoints,
+    stepMode: nextRun.stepMode
+  }).catch((error: unknown) => {
+    completeRuntimeRun({
+      runId: nextRun.id,
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+      stdout: "",
+      stderr: "",
+      durationMs: 0,
+      traces: []
+    });
+  });
+}
+
+function completeRuntimeRun(result: BlueprintRuntimeResultPayload): void {
+  if (activeRuntimeRun && result.runId && activeRuntimeRun.id !== result.runId) {
+    return;
+  }
   sendToEditor({ type: "runtimeResult", ...result });
   activeRuntimeRun = undefined;
   publishRuntimeQueueStatus();
@@ -1210,7 +1285,7 @@ function DesktopShell(): JSX.Element {
 
   const runActiveGraph = React.useCallback(async () => {
     setDesktopRunStatus({ phase: "running", message: desktopT("desktop.run.running") });
-    const result = await tauriBlueprintHost.runGraph(activeGraph, activeGraphPath).catch((error: unknown) => ({
+    const result = await tauriBlueprintHost.runGraph(activeGraph, activeGraphPath, { runId: `desktop-run-${Date.now().toString(36)}` }).catch((error: unknown) => ({
       ok: false,
       message: error instanceof Error ? error.message : String(error),
       stdout: "",

@@ -6,6 +6,8 @@
   "permissions": [
     "dialog:allow-open",
     "dialog:allow-save",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",

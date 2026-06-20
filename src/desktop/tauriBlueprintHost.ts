@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { BlueprintGraph, BlueprintNodeTemplate, BlueprintProject, BlueprintSolution, BlueprintTemplatePackageManifest, RuntimeTraceEvent, ValidationIssue } from "../shared/blueprint";
+import { BlueprintBreakpointSpec, BlueprintGraph, BlueprintNodeTemplate, BlueprintProject, BlueprintSolution, BlueprintTemplatePackageManifest, RuntimeTraceEvent, ValidationIssue } from "../shared/blueprint";
 
 export type BlueprintFile = BlueprintSolution | BlueprintProject | BlueprintGraph;
 
@@ -35,7 +35,10 @@ export interface BlueprintDesktopHost {
   readBlueprintSolution(path: string): Promise<BlueprintSolutionSummary>;
   loadProjectTemplates(projectPath: string): Promise<BlueprintDesktopTemplatesResult>;
   compileGraph(graph: BlueprintGraph, graphPath?: string): Promise<BlueprintDesktopCompileResult>;
-  runGraph(graph: BlueprintGraph, graphPath?: string): Promise<BlueprintDesktopRunResult>;
+  runGraph(graph: BlueprintGraph, graphPath?: string, options?: BlueprintDesktopRunOptions): Promise<BlueprintDesktopRunResult>;
+  runtimeStep(runId?: string): Promise<void>;
+  runtimeContinue(runId?: string): Promise<void>;
+  cancelRuntimeRun(runId?: string): Promise<void>;
   createSolution(path: string, solutionName: string, projectName: string, templateId: BlueprintSolutionTemplateId): Promise<BlueprintSolutionSummary>;
   createProject(solutionPath: string, projectName: string): Promise<BlueprintSolutionSummary>;
   renameProject(solutionPath: string, projectPath: string, projectName: string): Promise<BlueprintSolutionSummary>;
@@ -66,6 +69,7 @@ export interface BlueprintDesktopTemplatesResult {
 }
 
 export interface BlueprintDesktopRunResult {
+  runId?: string;
   ok: boolean;
   message: string;
   stdout: string;
@@ -73,6 +77,12 @@ export interface BlueprintDesktopRunResult {
   durationMs: number;
   traces: RuntimeTraceEvent[];
   issues?: ValidationIssue[];
+}
+
+export interface BlueprintDesktopRunOptions {
+  runId?: string;
+  breakpoints?: BlueprintBreakpointSpec[];
+  stepMode?: boolean;
 }
 
 export const tauriBlueprintHost: BlueprintDesktopHost = {
@@ -94,8 +104,23 @@ export const tauriBlueprintHost: BlueprintDesktopHost = {
   compileGraph(graph, graphPath) {
     return invoke<BlueprintDesktopCompileResult>("blueprint_compile_graph", { graph, graphPath });
   },
-  runGraph(graph, graphPath) {
-    return invoke<BlueprintDesktopRunResult>("blueprint_run_graph", { graph, graphPath });
+  runGraph(graph, graphPath, options) {
+    return invoke<BlueprintDesktopRunResult>("blueprint_run_graph", {
+      graph,
+      graphPath,
+      runId: options?.runId,
+      breakpoints: options?.breakpoints,
+      stepMode: options?.stepMode
+    });
+  },
+  runtimeStep(runId) {
+    return invoke<void>("blueprint_runtime_step", { runId });
+  },
+  runtimeContinue(runId) {
+    return invoke<void>("blueprint_runtime_continue", { runId });
+  },
+  cancelRuntimeRun(runId) {
+    return invoke<void>("blueprint_cancel_runtime_run", { runId });
   },
   createSolution(path, solutionName, projectName, templateId) {
     return invoke<BlueprintSolutionSummary>("blueprint_create_solution", { path, solutionName, projectName, templateId });
