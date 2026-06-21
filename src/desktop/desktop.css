@@ -1266,3 +1266,60 @@
     display: none;
   }
 }
+
+@media (max-width: 520px) {
+  .desktop-frame {
+    grid-template-rows: 36px minmax(0, 1fr);
+  }
+
+  .desktop-titlebar {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .desktop-titlebar-brand {
+    padding: 0 6px;
+  }
+
+  .desktop-titlebar-brand span,
+  .desktop-titlebar-context,
+  .desktop-titlebar-actions {
+    display: none;
+  }
+
+  .desktop-main-menu {
+    justify-content: flex-start;
+    overflow: hidden;
+  }
+
+  .desktop-main-menu button {
+    padding: 0 6px;
+    font-size: 11px;
+  }
+
+  .desktop-window-controls button {
+    width: 32px;
+  }
+
+  .desktop-shell,
+  .desktop-shell.left-dock-collapsed,
+  .desktop-shell.right-dock-collapsed,
+  .desktop-shell.left-dock-collapsed.right-dock-collapsed {
+    grid-template-columns: 36px minmax(0, 1fr) 36px;
+  }
+
+  .desktop-activity-bar.left {
+    grid-column: 1;
+  }
+
+  .desktop-editor {
+    grid-column: 2;
+  }
+
+  .desktop-activity-bar.right {
+    grid-column: 3;
+  }
+
+  .desktop-menu-popover {
+    max-width: calc(100vw - 12px);
+  }
+}

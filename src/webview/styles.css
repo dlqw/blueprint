@@ -141,7 +141,7 @@ textarea:focus-visible {
 
 .shell.external-dock-panels {
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) var(--bottom-splitter-height, 6px) var(--bottom-panel-height, 210px);
   width: 100%;
 }
 
@@ -229,6 +229,30 @@ textarea:focus-visible {
 .splitter.bottom {
   grid-column: 1 / -1;
   grid-row: 2;
+}
+
+.splitter.bottom::before {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 50%;
+  width: 64px;
+  height: 4px;
+  border: 1px solid rgba(72, 185, 199, 0.28);
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, transparent, rgba(72, 185, 199, 0.72), transparent),
+    rgba(12, 12, 12, 0.94);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.42);
+  opacity: 0.72;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.splitter.bottom:hover::before,
+.splitter.bottom:active::before {
+  border-color: rgba(72, 185, 199, 0.74);
+  opacity: 1;
 }
 
 .shell.left-collapsed .splitter.left,
@@ -1571,6 +1595,7 @@ textarea:focus-visible {
   background: color-mix(in srgb, var(--panel) 94%, transparent);
   box-shadow: var(--shadow-interface);
   cursor: crosshair;
+  pointer-events: none;
   padding: 3px;
 }
 
@@ -1907,6 +1932,141 @@ textarea:focus-visible {
   }
 }
 
+@media (max-width: 520px) {
+  .topbar {
+    min-width: 0;
+  }
+
+  .toolbar {
+    justify-content: flex-start;
+    overflow: hidden;
+  }
+
+  .toolbar-primary-tools,
+  .toolbar-view-controls {
+    flex: 0 1 auto;
+  }
+
+  .toolbar-group {
+    min-width: 0;
+    padding-right: 3px;
+  }
+
+  .toolbar .icon-button {
+    width: 28px;
+    height: 28px;
+  }
+
+  .toolbar .text-button {
+    min-width: 38px;
+    max-width: 46px;
+    padding: 0 4px;
+  }
+
+  .editor-settings-panel {
+    inset: 8px;
+    top: 8px;
+    left: 8px;
+    width: auto;
+    max-height: none;
+    transform: none;
+    align-content: start;
+    padding: 10px;
+  }
+
+  .editor-settings-tabs {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .editor-settings-title,
+  .setting-row,
+  .setting-toggle {
+    align-items: stretch;
+  }
+
+  .setting-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .setting-row > span,
+  .setting-toggle span {
+    white-space: normal;
+  }
+
+  .setting-segmented {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .setting-segmented button {
+    padding: 0 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .setting-toolbar-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .setting-shortcut-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .setting-shortcut-row input {
+    grid-column: 1 / -1;
+  }
+
+  .editor-settings-actions {
+    justify-content: stretch;
+  }
+
+  .editor-settings-actions button {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .run-actionbar {
+    right: 8px;
+    left: 8px;
+    bottom: 8px;
+    gap: 3px;
+    min-height: 40px;
+    padding: 4px 5px;
+  }
+
+  .run-action-grip {
+    display: none;
+  }
+
+  .run-action-button {
+    flex: 1 1 0;
+    min-width: 30px;
+    padding: 0 5px;
+  }
+
+  .run-action-button span,
+  .run-action-button small,
+  .run-action-queue-count,
+  .run-action-progress-count {
+    display: none;
+  }
+
+  .run-action-status {
+    flex: 0 0 auto;
+    max-width: 56px;
+    min-width: 42px;
+    font-size: 10px;
+  }
+
+  .output {
+    overflow: hidden;
+  }
+}
+
 .minimap-node-hub {
   opacity: 0.92;
 }
@@ -1984,7 +2144,7 @@ textarea:focus-visible {
 .node {
   position: absolute;
   z-index: 5;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid #666;
   border-radius: 8px;
   background: #353535;
@@ -2030,6 +2190,11 @@ textarea:focus-visible {
   pointer-events: none;
 }
 
+.node.runtime-active,
+.node.runtime-paused {
+  z-index: 9;
+}
+
 .node.runtime-active {
   border-color: color-mix(in srgb, #76d9ff 62%, var(--node-accent, #76d9ff));
   box-shadow:
@@ -2050,6 +2215,129 @@ textarea:focus-visible {
 
 .node.runtime-active.selected {
   animation-name: runtime-node-selected-halo;
+}
+
+.node.runtime-paused {
+  border-color: rgba(217, 164, 65, 0.86);
+  box-shadow:
+    0 0 0 1px rgba(217, 164, 65, 0.48),
+    0 0 0 5px rgba(217, 164, 65, 0.18),
+    0 0 24px rgba(217, 164, 65, 0.52),
+    0 12px 26px rgba(0, 0, 0, 0.56);
+}
+
+.node.runtime-paused::before {
+  opacity: 1;
+  border-top-color: rgba(255, 220, 139, 0.92);
+  box-shadow:
+    inset 0 0 0 1px rgba(217, 164, 65, 0.28),
+    inset 0 0 18px rgba(217, 164, 65, 0.12);
+}
+
+.runtime-edge-flow {
+  position: absolute;
+  z-index: 0;
+  inset: -4px;
+  overflow: hidden;
+  border-radius: 11px;
+  pointer-events: none;
+}
+
+.runtime-edge-flow::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border: 1px solid rgba(126, 222, 255, 0.28);
+  border-radius: 9px;
+}
+
+.runtime-edge-flow-segment {
+  position: absolute;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(126, 222, 255, 0.24), rgba(126, 222, 255, 1), rgba(126, 222, 255, 0.24), transparent);
+  box-shadow: 0 0 8px rgba(76, 190, 255, 0.92), 0 0 16px rgba(76, 190, 255, 0.36);
+  opacity: 0;
+  will-change: left, top, opacity;
+}
+
+.runtime-edge-flow-segment.top,
+.runtime-edge-flow-segment.bottom {
+  width: 34%;
+  min-width: 42px;
+  max-width: 82px;
+  height: 2px;
+}
+
+.runtime-edge-flow-segment.right,
+.runtime-edge-flow-segment.left {
+  width: 2px;
+  height: 48%;
+  min-height: 42px;
+  max-height: 82px;
+  background: linear-gradient(180deg, transparent, rgba(126, 222, 255, 0.24), rgba(126, 222, 255, 1), rgba(126, 222, 255, 0.24), transparent);
+}
+
+.runtime-edge-flow-segment.top {
+  top: 1px;
+  animation: runtime-edge-flow-x 1.8s linear infinite;
+}
+
+.runtime-edge-flow-segment.right {
+  right: 1px;
+  animation: runtime-edge-flow-y 1.8s linear infinite 0.45s;
+}
+
+.runtime-edge-flow-segment.bottom {
+  bottom: 1px;
+  animation: runtime-edge-flow-x-reverse 1.8s linear infinite 0.9s;
+}
+
+.runtime-edge-flow-segment.left {
+  bottom: 0;
+  left: 1px;
+  animation: runtime-edge-flow-y-reverse 1.8s linear infinite 1.35s;
+}
+
+.node.runtime-paused .runtime-edge-flow::before {
+  border-color: rgba(255, 208, 92, 0.32);
+}
+
+.node.runtime-paused .runtime-edge-flow-segment {
+  background: linear-gradient(90deg, transparent, rgba(255, 208, 92, 0.26), rgba(255, 208, 92, 1), rgba(255, 208, 92, 0.26), transparent);
+  box-shadow: 0 0 8px rgba(255, 191, 63, 0.92), 0 0 16px rgba(255, 191, 63, 0.38);
+}
+
+.node.runtime-paused .runtime-edge-flow-segment.right,
+.node.runtime-paused .runtime-edge-flow-segment.left {
+  background: linear-gradient(180deg, transparent, rgba(255, 208, 92, 0.26), rgba(255, 208, 92, 1), rgba(255, 208, 92, 0.26), transparent);
+}
+
+@keyframes runtime-edge-flow-x {
+  0% { left: -34%; opacity: 0; }
+  12% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { left: 100%; opacity: 0; }
+}
+
+@keyframes runtime-edge-flow-x-reverse {
+  0% { left: 100%; opacity: 0; }
+  12% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { left: -34%; opacity: 0; }
+}
+
+@keyframes runtime-edge-flow-y {
+  0% { top: -48%; opacity: 0; }
+  12% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+
+@keyframes runtime-edge-flow-y-reverse {
+  0% { top: 100%; opacity: 0; }
+  12% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { top: -48%; opacity: 0; }
 }
 
 @keyframes runtime-node-halo {
@@ -3820,6 +4108,271 @@ button.runtime-compare-item:hover {
   overflow: hidden;
 }
 
+.run-panel-summary-console {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.run-console-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  height: 22px;
+  min-width: 0;
+  border: 1px solid rgba(170, 161, 147, 0.22);
+  background: #181817;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 7px;
+}
+
+.run-console-toolbar button:hover {
+  border-color: var(--amber);
+  background: rgba(217, 164, 65, 0.12);
+  color: var(--text);
+}
+
+.run-console {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: transparent;
+}
+
+.run-console-toolbar {
+  position: absolute;
+  top: -23px;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.run-console-toolbar > span {
+  display: none;
+  margin-right: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.run-console-list {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-top: 1px solid rgba(170, 161, 147, 0.16);
+  overflow: auto;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 11px;
+}
+
+.run-console-run {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-bottom: 1px solid rgba(170, 161, 147, 0.14);
+}
+
+.run-console-run.active {
+  box-shadow: inset 3px 0 0 var(--amber);
+}
+
+.run-console-run.live {
+  box-shadow: inset 3px 0 0 var(--green);
+}
+
+.run-console-run-head,
+.run-console-row {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr) auto;
+  align-items: stretch;
+  min-width: 0;
+  min-height: 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+  color: var(--muted);
+}
+
+.run-console-run-head {
+  background: #171716;
+}
+
+.run-console-run-head.ok {
+  box-shadow: inset 3px 0 0 rgba(107, 166, 90, 0.8);
+}
+
+.run-console-run-head.error {
+  box-shadow: inset 3px 0 0 rgba(224, 95, 80, 0.8);
+}
+
+.run-console-time {
+  display: inline-flex;
+  align-items: center;
+  border-right: 1px solid rgba(170, 161, 147, 0.12);
+  color: #8f887d;
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+.run-console-main,
+.run-console-run-select {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr) minmax(0, 1.25fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 3px 8px;
+  text-align: left;
+}
+
+button.run-console-main,
+.run-console-run-select {
+  cursor: pointer;
+}
+
+button.run-console-main:hover,
+.run-console-run-select:hover,
+.run-console-row.active .run-console-main {
+  background: rgba(54, 138, 201, 0.18);
+  color: var(--text);
+}
+
+.run-console-main strong,
+.run-console-run-select strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.run-console-main span,
+.run-console-main small,
+.run-console-run-select small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-console-main span {
+  color: var(--text);
+}
+
+.run-console-main small,
+.run-console-run-select small {
+  color: var(--dim);
+}
+
+.run-console-row.info .run-console-main strong {
+  color: var(--cyan);
+}
+
+.run-console-row.success .run-console-main strong,
+.run-console-row.trace.visited .run-console-main strong,
+.run-console-row.trace.active .run-console-main strong {
+  color: var(--green);
+}
+
+.run-console-row.warning .run-console-main strong,
+.run-console-row.trace.paused .run-console-main strong,
+.run-console-row.trace.breakpoint .run-console-main strong {
+  color: var(--amber);
+}
+
+.run-console-row.error .run-console-main strong,
+.run-console-row.trace.error .run-console-main strong {
+  color: var(--red);
+}
+
+.run-console-row.trace.skipped .run-console-main strong {
+  color: var(--cyan);
+}
+
+.run-console-row.trace.active {
+  background: rgba(107, 166, 90, 0.08);
+}
+
+.run-console-row.trace.paused {
+  background: rgba(217, 164, 65, 0.08);
+}
+
+.run-console-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  color: var(--dim);
+  padding: 0 8px;
+}
+
+.run-console-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 5px;
+}
+
+.run-console-actions button {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.run-console-actions button:hover,
+.run-console-actions button.active {
+  border-color: rgba(217, 164, 65, 0.44);
+  background: rgba(217, 164, 65, 0.12);
+  color: var(--amber);
+}
+
+.run-console-copy-row {
+  display: inline-grid;
+  width: 28px;
+  min-height: 24px;
+  place-items: center;
+  border: 0;
+  border-left: 1px solid rgba(170, 161, 147, 0.12);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.run-console-copy-row:hover {
+  background: rgba(217, 164, 65, 0.12);
+  color: var(--amber);
+}
+
+.run-console-empty {
+  color: var(--muted);
+  padding: 12px;
+}
+
 .run-panel-edge-toggle {
   position: absolute;
   top: 6px;
@@ -3850,14 +4403,12 @@ button.runtime-compare-item:hover {
 .run-panel-body {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 8px;
+  gap: 0;
   min-width: 0;
   min-height: 0;
-  overflow: auto;
-  background:
-    linear-gradient(90deg, rgba(72, 185, 199, 0.05), transparent 36%),
-    #111;
-  padding: 9px 92px 9px 10px;
+  overflow: hidden;
+  background: #111;
+  padding: 9px 10px 0;
 }
 
 .run-panel-body-summary {
@@ -3865,6 +4416,7 @@ button.runtime-compare-item:hover {
   align-items: center;
   gap: 8px;
   min-width: 0;
+  padding-right: 118px;
 }
 
 .run-panel-title {
@@ -3874,8 +4426,10 @@ button.runtime-compare-item:hover {
 }
 
 .run-panel-details {
+  display: grid;
   min-width: 0;
   min-height: 0;
+  overflow: visible;
 }
 
 .run-log {

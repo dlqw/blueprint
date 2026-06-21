@@ -48,7 +48,7 @@ async function main() {
     graphSourcePaths
   });
 
-  if (action === "compile" || !result.ok) {
+  if (action === "compile") {
     writeJson({
       ok: result.ok,
       message: result.message,
@@ -58,9 +58,24 @@ async function main() {
     return;
   }
 
+  if (!result.ok) {
+    emitRuntimeResult({
+      runId: request.runId,
+      ok: false,
+      message: result.message,
+      stdout: "",
+      stderr: "",
+      durationMs: 0,
+      traces: [],
+      issues: result.issues ?? []
+    }, request.streamEvents === true);
+    return;
+  }
+
   const entry = (result.outputFiles ?? []).map((file) => file.fsPath).find((filePath) => path.basename(filePath) !== "runtime.ts");
   if (!entry) {
-    writeJson({
+    emitRuntimeResult({
+      runId: request.runId,
       ok: false,
       message: "No generated graph entry file was produced.",
       stdout: "",
@@ -68,7 +83,7 @@ async function main() {
       durationMs: 0,
       traces: [],
       issues: []
-    });
+    }, request.streamEvents === true);
     return;
   }
 
@@ -81,6 +96,7 @@ function runGeneratedEntry(entry, request, started) {
   const stdoutChunks = [];
   const stderrChunks = [];
   const tracePrefix = "__BLUEPRINT_TRACE__";
+  const streamEvents = request.streamEvents === true;
   const run = spawn("npx", ["tsx", path.basename(entry)], {
     cwd: path.dirname(entry),
     encoding: "utf8",
@@ -99,7 +115,7 @@ function runGeneratedEntry(entry, request, started) {
     stdoutChunks.push(String(chunk));
   });
   run.stderr.on("data", (chunk) => {
-    stderrRemainder = consumeTraceLines(`${stderrRemainder}${String(chunk)}`, tracePrefix, traces, stderrChunks, request.runId);
+    stderrRemainder = consumeTraceLines(`${stderrRemainder}${String(chunk)}`, tracePrefix, traces, stderrChunks, request.runId, streamEvents);
   });
   process.stdin.setEncoding("utf8");
   process.stdin.resume();
@@ -122,8 +138,17 @@ function runGeneratedEntry(entry, request, started) {
   });
 
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = (payload) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      emitRuntimeResult(payload, streamEvents);
+      resolve();
+    };
     run.on("error", (error) => {
-      emitRuntimeResult({
+      finish({
         runId: request.runId,
         ok: false,
         message: error instanceof Error ? error.message : String(error),
@@ -133,14 +158,13 @@ function runGeneratedEntry(entry, request, started) {
         traces,
         issues: []
       });
-      resolve();
     });
     run.on("close", (code, signal) => {
       if (stderrRemainder) {
         stderrChunks.push(stderrRemainder);
       }
       const canceled = signal === "SIGTERM" || signal === "SIGKILL";
-      emitRuntimeResult({
+      finish({
         runId: request.runId,
         ok: code === 0 && !canceled,
         message: canceled ? "Run canceled." : code === 0 ? `Ran ${path.basename(entry)}.` : `Run failed with exit code ${code ?? 1}.`,
@@ -150,7 +174,6 @@ function runGeneratedEntry(entry, request, started) {
         traces,
         issues: []
       });
-      resolve();
     });
   });
 }
@@ -163,11 +186,15 @@ function writeEvent(event, payload) {
   process.stdout.write(`${JSON.stringify({ event, payload })}\n`);
 }
 
-function emitRuntimeResult(payload) {
-  writeEvent("runtimeResult", payload);
+function emitRuntimeResult(payload, streamEvents) {
+  if (streamEvents) {
+    writeEvent("runtimeResult", payload);
+    return;
+  }
+  writeJson(payload);
 }
 
-function consumeTraceLines(buffer, tracePrefix, traces, stderrChunks, runId) {
+function consumeTraceLines(buffer, tracePrefix, traces, stderrChunks, runId, streamEvents) {
   const lines = buffer.split(/\r?\n/);
   const remainder = lines.pop() ?? "";
   for (const line of lines) {
@@ -178,7 +205,9 @@ function consumeTraceLines(buffer, tracePrefix, traces, stderrChunks, runId) {
     try {
       const trace = JSON.parse(line.slice(tracePrefix.length));
       traces.push(trace);
-      writeEvent("runtimeTrace", { runId, trace });
+      if (streamEvents) {
+        writeEvent("runtimeTrace", { runId, trace });
+      }
     } catch {
       stderrChunks.push(`${line}\n`);
     }

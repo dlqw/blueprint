@@ -394,6 +394,45 @@ describe("Blueprint webview App", () => {
     });
   });
 
+  it("keeps the contextual selection toolbox above the bottom log dock", async () => {
+    const { container } = renderAppWithGraph(sampleGraph());
+    await screen.findAllByText("Function Entry");
+
+    const canvas = container.querySelector(".canvas") as HTMLElement | null;
+    const runPanel = container.querySelector(".run-panel") as HTMLElement | null;
+    expect(canvas).toBeTruthy();
+    expect(runPanel).toBeTruthy();
+    vi.spyOn(canvas as HTMLElement, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1200,
+      bottom: 900,
+      width: 1200,
+      height: 900,
+      toJSON: () => ({})
+    } as DOMRect);
+    vi.spyOn(runPanel as HTMLElement, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 500,
+      left: 0,
+      top: 500,
+      right: 1200,
+      bottom: 900,
+      width: 1200,
+      height: 400,
+      toJSON: () => ({})
+    } as DOMRect);
+
+    fireEvent.click(screen.getAllByText("Log")[0]);
+
+    await waitFor(() => {
+      const toolbox = screen.getByLabelText("Selection toolbox") as HTMLElement;
+      expect(Number.parseFloat(toolbox.style.top)).toBeLessThanOrEqual(448);
+    });
+  });
+
   it("restores graph editor preferences from host state without changing graph data", async () => {
     hostState = {
       editorPrefs: {
@@ -517,7 +556,7 @@ describe("Blueprint webview App", () => {
         linkRenderMode: "spline",
         snapToGrid: false,
         theme: "comfy-dark",
-        mainToolbarActions: expect.arrayContaining(["run", "stepRun", "overflow"])
+        mainToolbarActions: expect.arrayContaining(["overflow"])
       })
     });
     expect(await screen.findByText("Settings exported")).toBeInTheDocument();
@@ -1353,7 +1392,7 @@ describe("Blueprint webview App", () => {
         message: "Renamed blackboard variable 'score' to 'totalScore'; 2 node bindings in 2 graphs; 1 project variable in 1 project"
       }
     }));
-    expect(await screen.findByText(/Renamed blackboard variable 'score' to 'totalScore'/)).toBeInTheDocument();
+    expect(await screen.findAllByText(/Renamed blackboard variable 'score' to 'totalScore'/)).not.toHaveLength(0);
 
     window.dispatchEvent(new MessageEvent("message", {
       data: {
@@ -1362,7 +1401,7 @@ describe("Blueprint webview App", () => {
         message: "Refactor failed: Blackboard variable 'totalScore' already exists in project 'Gameplay'."
       }
     }));
-    expect(await screen.findByText(/Refactor failed: Blackboard variable 'totalScore' already exists/)).toBeInTheDocument();
+    expect(await screen.findAllByText(/Refactor failed: Blackboard variable 'totalScore' already exists/)).not.toHaveLength(0);
 
     fireEvent.click(screen.getByTitle("Copy solution variable references"));
     expect(writeText).toHaveBeenCalledWith("Gameplay / AI / remote-get-score / D:/Project/Gameplay/graphs/ai.bpgraph");
@@ -1587,7 +1626,7 @@ describe("Blueprint webview App", () => {
     const { container } = renderAppWithGraph(graph);
     await screen.findAllByText("Function Entry");
 
-    fireEvent.click(screen.getByTitle(/run graph/i));
+    fireEvent.click(screen.getByTitle("Queue graph run"));
     const runRequest = postedMessages.filter((message) => message.type === "requestRun").at(-1);
     expect(runRequest?.type).toBe("requestRun");
     expect(runRequest?.graph.id).toBe(graph.id);
@@ -1612,7 +1651,7 @@ describe("Blueprint webview App", () => {
     }));
 
     expect(await screen.findByTitle("Running: active")).toHaveTextContent("RUN");
-    expect(screen.getByText("Running")).toBeInTheDocument();
+    expect(screen.getAllByText("Running")).not.toHaveLength(0);
     expect(screen.getByTitle("Runtime progress nodes")).toHaveTextContent("1 node");
 
     window.dispatchEvent(new MessageEvent("message", {
@@ -1660,7 +1699,7 @@ describe("Blueprint webview App", () => {
     fireEvent.click(screen.getByTitle("Show run details"));
     expect(await screen.findByText("Run Details")).toBeInTheDocument();
     expect(await screen.findByText("3/3 traces · 12ms")).toBeInTheDocument();
-    expect(await screen.findByText('message: "Hello Blueprint"')).toBeInTheDocument();
+    expect(await screen.findAllByText('message: "Hello Blueprint"')).not.toHaveLength(0);
     fireEvent.click(screen.getByTitle("Group runtime traces by status"));
     expect([...container.querySelectorAll(".runtime-detail-group-title strong")].map((element) => element.textContent)).toEqual(["visited", "skipped"]);
     fireEvent.change(screen.getByPlaceholderText("Filter traces"), { target: { value: "hello" } });
@@ -1715,9 +1754,9 @@ describe("Blueprint webview App", () => {
     expect(screen.getByTitle("Filter run differences by missing")).toHaveTextContent("missing 2");
     expect(screen.getByTitle("Sort run differences by kind")).toHaveClass("active");
     expect(screen.getByTitle("Inspect changed runtime node Log (log1)")).toHaveTextContent("visited -> error");
-    expect(screen.getByText("Function Entry (entry)")).toBeInTheDocument();
+    expect(screen.getAllByText("Function Entry (entry)")).not.toHaveLength(0);
     expect(screen.getByText("was visited")).toBeInTheDocument();
-    expect(screen.getByText("Branch (branch)")).toBeInTheDocument();
+    expect(screen.getAllByText("Branch (branch)")).not.toHaveLength(0);
     expect(screen.getByText("was skipped")).toBeInTheDocument();
     fireEvent.click(screen.getByTitle("Sort run differences by node"));
     expect([...container.querySelectorAll(".runtime-compare-item > span")].map((element) => element.textContent)).toEqual([
@@ -1744,44 +1783,117 @@ describe("Blueprint webview App", () => {
     expect(screen.getByTitle("Copy filtered run comparison as JSON")).toHaveTextContent("Copied");
     fireEvent.click(screen.getByTitle("Filter run differences by missing"));
     expect(screen.queryByTitle("Inspect changed runtime node Log (log1)")).not.toBeInTheDocument();
-    expect(screen.getByText("Function Entry (entry)")).toBeInTheDocument();
+    expect(screen.getAllByText("Function Entry (entry)")).not.toHaveLength(0);
     fireEvent.click(screen.getByTitle("Filter run differences by All"));
     const changedDiff = screen.getByTitle("Inspect changed runtime node Log (log1)");
     fireEvent.click(changedDiff);
     expect(changedDiff).toHaveClass("pinned");
     expect(await screen.findByText("Trace 1/1")).toBeInTheDocument();
 
-    expect(screen.getByTitle("Open run history")).toHaveTextContent("2");
-    fireEvent.click(screen.getByTitle("Open run history"));
-    const historyDialog = await screen.findByRole("dialog", { name: "History" });
-    const historyButtons = historyDialog.querySelectorAll(".run-history-item");
-    expect(historyButtons).toHaveLength(2);
+    expect(screen.getAllByText("Boom")).not.toHaveLength(0);
+    expect(screen.getAllByText("Hello Blueprint")).not.toHaveLength(0);
     const prompt = vi.spyOn(window, "prompt").mockReturnValue("Failure Baseline");
-    fireEvent.click(within(historyDialog).getByTitle("Rename run 1"));
+    fireEvent.click(screen.getByTitle("Rename run 1"));
     expect(prompt).toHaveBeenCalledWith("Run label", "");
-    expect(await screen.findByText(/Run failed Failure Baseline: Boom/)).toBeInTheDocument();
+    expect(await screen.findByText("Failure Baseline")).toBeInTheDocument();
     expect((hostState as { runtimeHistory?: { entries?: Array<{ label?: string }> } }).runtimeHistory?.entries?.[0].label).toBe("Failure Baseline");
     prompt.mockRestore();
-    fireEvent.click(within(historyDialog).getByTitle("Pin run 1"));
+    fireEvent.click(screen.getByTitle("Pin run 1"));
     expect((hostState as { runtimeHistory?: { entries?: Array<{ pinned?: boolean }> } }).runtimeHistory?.entries?.[0].pinned).toBe(true);
-    expect(within(historyDialog).getByTitle("Unpin run 1")).toBeInTheDocument();
+    expect(screen.getByTitle("Unpin run 1")).toBeInTheDocument();
 
-    fireEvent.click(historyDialog.querySelectorAll(".run-history-item")[1]);
+    fireEvent.click(screen.getByTitle("Hello Blueprint"));
 
     expect(await screen.findByText(/Run: Hello Blueprint/)).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.queryAllByTitle("Last run: visited")).toHaveLength(2);
       expect(screen.getByTitle("Last run: skipped")).toHaveTextContent("SK");
     });
-    fireEvent.click(within(historyDialog).getByTitle("Delete run 1"));
+    fireEvent.click(screen.getByTitle("Delete run 1"));
     expect((hostState as { runtimeHistory?: { entries?: Array<{ label?: string }> } }).runtimeHistory?.entries).toHaveLength(1);
     expect(screen.queryByText("Failure Baseline")).not.toBeInTheDocument();
-    fireEvent.click(within(historyDialog).getByTitle("Clear run history"));
+    fireEvent.click(screen.getByTitle("Clear run history"));
     await waitFor(() => {
       expect((hostState as { runtimeHistory?: { entries?: unknown[]; activeId?: string } }).runtimeHistory?.entries).toEqual([]);
       expect((hostState as { runtimeHistory?: { entries?: unknown[]; activeId?: string } }).runtimeHistory?.activeId).toBeUndefined();
       expect(screen.queryByText(/Run: Hello Blueprint/)).not.toBeInTheDocument();
     });
+  });
+
+  it("keeps the newest runtime output visible above validation warnings in the log dock", async () => {
+    const graph = alignmentGraph();
+    const { container } = renderAppWithGraph(graph);
+    await screen.findAllByText("Function Entry");
+
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        type: "validationResult",
+        issues: [{
+          severity: "warning",
+          message: "Existing warning",
+          nodeId: "log1"
+        }]
+      }
+    }));
+    expect(await screen.findByText("Existing warning")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle("Queue graph run"));
+    const runRequest = postedMessages.filter((message) => message.type === "requestRun").at(-1);
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        type: "runtimeResult",
+        runId: runRequest?.runId,
+        ok: true,
+        message: "Ran Main.ts.",
+        stdout: "Score: 42\n",
+        stderr: "",
+        durationMs: 3,
+        traces: [
+          { graphId: graph.id, nodeId: "entry", nodeName: "Function Entry", status: "visited", timestamp: Date.now() }
+        ]
+      }
+    }));
+
+    await screen.findByText("Score: 42");
+    const firstConsoleBlock = container.querySelector(".run-console-list > :first-child");
+    expect(firstConsoleBlock).toHaveClass("run-console-run");
+    expect(firstConsoleBlock).toHaveTextContent("Score: 42");
+    expect(firstConsoleBlock).not.toHaveTextContent("Existing warning");
+  });
+
+  it("opens runtime details from log trace rows", async () => {
+    const graph = sampleGraph();
+    const { container } = renderAppWithGraph(graph);
+    await screen.findAllByText("Function Entry");
+
+    fireEvent.click(screen.getByTitle("Queue graph run"));
+    const runRequest = postedMessages.filter((message) => message.type === "requestRun").at(-1);
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        type: "runtimeResult",
+        runId: runRequest?.runId,
+        ok: true,
+        message: "Ran Main.ts.",
+        stdout: "",
+        stderr: "",
+        durationMs: 9,
+        traces: [
+          { graphId: graph.id, nodeId: "entry", nodeName: "Function Entry", status: "active", timestamp: 1 },
+          { graphId: "trace-macro", nodeId: "log1", nodeName: "Log", status: "visited", message: "Trace macro expanded", timestamp: 2 }
+        ]
+      }
+    }));
+
+    const traceButtons = await waitFor(() => {
+      const buttons = container.querySelectorAll(".run-console-row.trace .run-console-main");
+      expect(buttons.length).toBeGreaterThan(0);
+      return buttons;
+    });
+    fireEvent.click(traceButtons[1]);
+
+    expect(await screen.findByText("Run Details")).toBeInTheDocument();
+    expect(screen.getAllByText(/graph trace-macro/)).not.toHaveLength(0);
+    expect(screen.getByText("Trace macro expanded")).toBeInTheDocument();
   });
 
   it("compares runtime node input context changes", async () => {
@@ -1846,17 +1958,35 @@ describe("Blueprint webview App", () => {
     renderAppWithGraph(sampleGraph());
     await screen.findAllByText("Function Entry");
 
-    fireEvent.click(screen.getByTitle(/run graph/i));
-    expect(screen.getByTitle(/cancel run/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("Queue graph run"));
+    const runRequest = postedMessages.filter((message) => message.type === "requestRun").at(-1);
+    expect(runRequest?.type).toBe("requestRun");
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        type: "runtimeQueueStatus",
+        status: { running: true, queuedRuns: 0, activeRunId: runRequest?.runId }
+      }
+    }));
+    expect(screen.getByTitle("Interrupt current run")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTitle(/cancel run/i));
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        type: "runtimeTrace",
+        runId: runRequest?.runId,
+        trace: { graphId: "test", nodeId: "entry", nodeName: "Function Entry", status: "active", timestamp: 1 }
+      }
+    }));
+    expect(await screen.findByTitle("Running: active")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle("Interrupt current run"));
     const cancelRequest = postedMessages.filter((message) => message.type === "requestCancelRun").at(-1);
     expect(cancelRequest?.type).toBe("requestCancelRun");
-    expect(screen.getByTitle(/run graph/i)).toBeInTheDocument();
+    expect(screen.getByTitle("Interrupt current run")).toBeInTheDocument();
 
     window.dispatchEvent(new MessageEvent("message", {
       data: {
         type: "runtimeResult",
+        runId: runRequest?.runId,
         ok: false,
         message: "Run canceled.",
         stdout: "",
@@ -1867,14 +1997,63 @@ describe("Blueprint webview App", () => {
     }));
 
     expect(await screen.findByText(/Run failed: Run canceled\./)).toBeInTheDocument();
+    expect(screen.getByTitle("Queue graph run")).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("Show run details"));
+    expect(await screen.findByText("1/1 traces · 5ms")).toBeInTheDocument();
+    expect((hostState as { runtimeHistory?: { entries?: Array<{ traces?: unknown[] }> } }).runtimeHistory?.entries?.[0]?.traces).toEqual([
+      expect.objectContaining({ nodeId: "entry", status: "active" })
+    ]);
+  });
+
+  it("clears local runtime state when the desktop runtime reports an already-active run", async () => {
+    renderAppWithGraph(sampleGraph());
+    await screen.findAllByText("Function Entry");
+
+    fireEvent.click(screen.getByTitle("Queue graph run"));
+    const runRequest = postedMessages.filter((message) => message.type === "requestRun").at(-1);
+    expect(runRequest?.type).toBe("requestRun");
+    expect(screen.getByTitle("Interrupt current run")).toBeInTheDocument();
+
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        type: "runtimeTrace",
+        runId: runRequest?.runId,
+        trace: { graphId: "test", nodeId: "entry", nodeName: "Function Entry", status: "active", timestamp: 1 }
+      }
+    }));
+    expect(await screen.findByTitle("Running: active")).toBeInTheDocument();
+
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        type: "runtimeResult",
+        runId: runRequest?.runId,
+        ok: false,
+        message: "a Blueprint runtime run is already active",
+        stdout: "",
+        stderr: "a Blueprint runtime run is already active",
+        durationMs: 0,
+        traces: []
+      }
+    }));
+
+    expect(await screen.findByText(/Run failed: a Blueprint runtime run is already active/)).toBeInTheDocument();
+    expect(screen.queryByTitle("Running: active")).not.toBeInTheDocument();
+    expect(screen.getByTitle("Queue graph run")).toBeInTheDocument();
   });
 
   it("keeps the graph read-only while a run is active", async () => {
     const { container } = renderAppWithGraph(sampleGraph());
     await screen.findAllByText("Function Entry");
 
-    fireEvent.click(screen.getByTitle(/run graph/i));
-    expect(screen.getByTitle(/cancel run/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("Queue graph run"));
+    const runRequest = postedMessages.filter((message) => message.type === "requestRun").at(-1);
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        type: "runtimeQueueStatus",
+        status: { running: true, queuedRuns: 0, activeRunId: runRequest?.runId }
+      }
+    }));
+    expect(screen.getByTitle("Interrupt current run")).toBeInTheDocument();
     const graphChangeCount = postedMessages.filter((message) => message.type === "graphChanged").length;
 
     fireEvent.keyDown(window, { key: "Delete", code: "Delete" });
@@ -1929,21 +2108,20 @@ describe("Blueprint webview App", () => {
 
     expect(await screen.findByText("Queued")).toBeInTheDocument();
     expect(screen.getByTitle("Hide run history (2 queued)")).toBeInTheDocument();
-    expect(screen.getByTitle(/run graph/i)).toBeInTheDocument();
+    expect(screen.getByTitle("Queue graph run")).toBeInTheDocument();
   });
 
   it("requests step-mode runs and advances paused runtime steps", async () => {
     const graph = sampleGraph();
-    const { container } = renderAppWithGraph(graph);
+    renderAppWithGraph(graph);
     await screen.findAllByText("Function Entry");
 
-    const runtimeToolbar = container.querySelector(".topbar .toolbar .toolbar-run-controls") as HTMLElement;
-    fireEvent.click(within(runtimeToolbar).getByTitle("Step run"));
+    fireEvent.click(screen.getByTitle("Queue step run"));
     const runRequest = postedMessages.filter((message) => message.type === "requestRun").at(-1);
     expect(runRequest?.type).toBe("requestRun");
     expect(runRequest?.runId).toEqual(expect.stringMatching(/^run-/));
     expect(runRequest?.stepMode).toBe(true);
-    expect(screen.getByTitle(/step runtime/i)).toBeInTheDocument();
+    expect(screen.getByTitle("Step active runtime")).toBeInTheDocument();
     expect(screen.getByText("Pending")).toBeInTheDocument();
 
     window.dispatchEvent(new MessageEvent("message", {
@@ -1957,11 +2135,121 @@ describe("Blueprint webview App", () => {
     expect(await screen.findByTitle("Running: paused")).toHaveTextContent("PAU");
     expect(screen.getByText("Paused")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTitle(/step runtime/i));
+    fireEvent.click(screen.getByTitle("Step active runtime"));
     expect(postedMessages.filter((message) => message.type === "requestRuntimeStep").at(-1)?.type).toBe("requestRuntimeStep");
 
-    fireEvent.click(screen.getByTitle(/continue runtime/i));
+    fireEvent.click(screen.getByTitle("Continue active runtime"));
     expect(postedMessages.filter((message) => message.type === "requestRuntimeContinue").at(-1)?.type).toBe("requestRuntimeContinue");
+  });
+
+  it("preserves the active runtime state when opening a traced subgraph", async () => {
+    const graph = sampleGraph();
+    renderAppWithGraph(graph);
+    await screen.findAllByText("Function Entry");
+
+    fireEvent.click(screen.getByTitle("Queue step run"));
+    const runRequest = postedMessages.filter((message) => message.type === "requestRun").at(-1);
+    const subgraph = {
+      ...sampleGraph(),
+      id: "child-graph",
+      name: "Child Graph"
+    };
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        type: "runtimeTrace",
+        runId: runRequest?.runId,
+        trace: { graphId: subgraph.id, nodeId: "entry", nodeName: "Function Entry", status: "paused", timestamp: 5 }
+      }
+    }));
+
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        type: "loadGraph",
+        graph: subgraph
+      }
+    }));
+
+    expect(await screen.findByTitle("Running: paused")).toHaveTextContent("PAU");
+    expect(screen.getByTitle("Interrupt current run")).toBeInTheDocument();
+    expect(screen.getByText("Paused")).toBeInTheDocument();
+  });
+
+  it("projects active subgraph traces onto the parent graph call node", async () => {
+    const graph: BlueprintGraph = {
+      ...sampleGraph(),
+      localTemplates: [blueprintGraphTemplate()],
+      nodes: [
+        ...sampleGraph().nodes,
+        {
+          id: "call-format",
+          templateId: "graph.format-score",
+          position: { x: 760, y: 120 },
+          inputBindings: {}
+        }
+      ],
+      links: [
+        ...sampleGraph().links,
+        {
+          id: "link-log-format",
+          fromNodeId: "log1",
+          fromPortId: "then",
+          toNodeId: "call-format",
+          toPortId: "exec",
+          flowKind: "control"
+        }
+      ]
+    };
+    const { container } = renderAppWithGraph(graph);
+    await screen.findAllByText("Function Entry");
+
+    fireEvent.click(screen.getByTitle("Queue step run"));
+    const runRequest = postedMessages.filter((message) => message.type === "requestRun").at(-1);
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        type: "runtimeTrace",
+        runId: runRequest?.runId,
+        trace: { graphId: "format-score", nodeId: "entry", nodeName: "Function Entry", status: "paused", timestamp: 8 }
+      }
+    }));
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-node-id="call-format"]')).toHaveClass("runtime-paused");
+    });
+    expect(screen.getByTitle("Running: paused")).toHaveTextContent("PAU");
+
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        type: "runtimeTrace",
+        runId: runRequest?.runId,
+        trace: { graphId: "format-score", nodeId: "entry", nodeName: "Function Entry", status: "visited", timestamp: 12 }
+      }
+    }));
+
+    await waitFor(() => {
+      const callNode = container.querySelector('[data-node-id="call-format"]');
+      expect(callNode).toHaveClass("runtime-visited");
+      expect(callNode).not.toHaveClass("runtime-paused");
+    });
+  });
+
+  it("keeps duplicate run controls out of the top toolbar by default and lets settings add them back", async () => {
+    const { container } = renderAppWithGraph(sampleGraph());
+    await screen.findAllByText("Function Entry");
+
+    expect(container.querySelector(".topbar .toolbar .toolbar-run-controls")).toBeNull();
+    expect(screen.getByTitle("Queue graph run")).toBeInTheDocument();
+    expect(screen.getByTitle("Queue step run")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle("Editor settings"));
+    fireEvent.click(screen.getByRole("tab", { name: "Main toolbar" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Run" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Step" }));
+
+    const runtimeToolbar = container.querySelector(".topbar .toolbar .toolbar-run-controls") as HTMLElement | null;
+    expect(runtimeToolbar).not.toBeNull();
+    expect(within(runtimeToolbar as HTMLElement).getByTitle("Run graph")).toBeInTheDocument();
+    expect(within(runtimeToolbar as HTMLElement).getByTitle("Step run")).toBeInTheDocument();
+    expect(screen.getByTitle("Queue graph run")).toBeInTheDocument();
   });
 
   it("sends selected node breakpoints with run requests and renders breakpoint hits", async () => {
@@ -1980,7 +2268,7 @@ describe("Blueprint webview App", () => {
     fireEvent.blur(conditionInput);
     expect(postedMessages.filter((message) => message.type === "graphChanged").at(-1)?.graph.debug?.breakpoints).toEqual([{ nodeId: "entry", condition: "hit >= 2" }]);
 
-    fireEvent.click(screen.getByTitle(/run graph/i));
+    fireEvent.click(screen.getByTitle("Queue graph run"));
     const runRequest = postedMessages.filter((message) => message.type === "requestRun").at(-1);
     expect(runRequest?.type).toBe("requestRun");
     expect(runRequest?.runId).toEqual(expect.stringMatching(/^run-/));
@@ -2020,7 +2308,7 @@ describe("Blueprint webview App", () => {
 
     expect(screen.getByDisplayValue("every 2")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTitle(/run graph/i));
+    fireEvent.click(screen.getByTitle("Queue graph run"));
     const runRequest = postedMessages.filter((message) => message.type === "requestRun").at(-1);
 
     expect(runRequest?.type).toBe("requestRun");
@@ -2107,6 +2395,35 @@ describe("Blueprint webview App", () => {
     await waitFor(() => {
       expect(panel?.style.width).toBe("780px");
       expect(panel?.style.height).toBe("396px");
+    });
+  });
+
+  it("resizes the bottom log dock from the bottom splitter", async () => {
+    const { container } = renderAppWithGraph(sampleGraph());
+    await screen.findAllByText("Function Entry");
+
+    const shell = container.querySelector(".shell") as HTMLElement | null;
+    expect(shell).toBeTruthy();
+    vi.spyOn(shell as HTMLElement, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1200,
+      bottom: 900,
+      width: 1200,
+      height: 900,
+      toJSON: () => ({})
+    } as DOMRect);
+
+    const bottomSplitter = screen.getByTitle("Drag to resize log panel");
+    expect(bottomSplitter).toHaveClass("splitter", "bottom");
+    firePointer(bottomSplitter, "pointerdown", { clientX: 600, clientY: 690, button: 0, pointerId: 19 });
+    firePointer(bottomSplitter, "pointermove", { clientX: 600, clientY: 500, pointerId: 19 });
+    firePointer(bottomSplitter, "pointerup", { clientX: 600, clientY: 500, pointerId: 19 });
+
+    await waitFor(() => {
+      expect(shell?.style.getPropertyValue("--bottom-panel-height")).toBe("400px");
     });
   });
 

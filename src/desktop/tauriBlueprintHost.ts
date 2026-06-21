@@ -83,6 +83,7 @@ export interface BlueprintDesktopRunOptions {
   runId?: string;
   breakpoints?: BlueprintBreakpointSpec[];
   stepMode?: boolean;
+  streamEvents?: boolean;
 }
 
 export const tauriBlueprintHost: BlueprintDesktopHost = {
@@ -110,7 +111,8 @@ export const tauriBlueprintHost: BlueprintDesktopHost = {
       graphPath,
       runId: options?.runId,
       breakpoints: options?.breakpoints,
-      stepMode: options?.stepMode
+      stepMode: options?.stepMode,
+      streamEvents: options?.streamEvents
     });
   },
   runtimeStep(runId) {

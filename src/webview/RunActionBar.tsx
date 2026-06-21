@@ -132,7 +132,7 @@ export function RunActionBar(props: {
         <GripVertical size={14} />
       </span>
       {hasCustomOffset ? (
-        <button type="button" className="run-action-button icon-only" title={props.t("runControls.resetPosition")} onClick={() => setOffset({ x: 0, y: 0 })}>
+        <button type="button" className="run-action-button icon-only" title={props.t("runControls.resetPosition")} aria-label={props.t("runControls.resetPosition")} onClick={() => setOffset({ x: 0, y: 0 })}>
           <RotateCcw size={15} />
         </button>
       ) : null}
@@ -140,6 +140,7 @@ export function RunActionBar(props: {
         type="button"
         className={props.running ? "run-action-button active" : "run-action-button primary"}
         title={props.running ? props.t("runControls.interruptRun") : props.t("runControls.queueRun")}
+        aria-label={props.running ? props.t("runControls.interruptRun") : props.t("runControls.queueRun")}
         onClick={props.running ? props.onCancel : props.onRun}
       >
         {props.running ? <Square size={15} /> : <Play size={15} />}
@@ -149,13 +150,14 @@ export function RunActionBar(props: {
         type="button"
         className="run-action-button"
         title={props.running ? props.t("runControls.stepActiveRuntime") : props.t("runControls.queueStepRun")}
+        aria-label={props.running ? props.t("runControls.stepActiveRuntime") : props.t("runControls.queueStepRun")}
         onClick={props.onStep}
       >
         <StepForward size={15} />
         <span>{props.running ? props.t("runControls.step") : props.t("runControls.stepRun")}</span>
       </button>
       {props.running ? (
-        <button type="button" className="run-action-button" title={props.t("runControls.continueActiveRuntime")} onClick={props.onContinue}>
+        <button type="button" className="run-action-button" title={props.t("runControls.continueActiveRuntime")} aria-label={props.t("runControls.continueActiveRuntime")} onClick={props.onContinue}>
           <Play size={15} />
           <span>{props.t("runControls.continue")}</span>
         </button>
@@ -164,6 +166,7 @@ export function RunActionBar(props: {
         type="button"
         className="run-action-button"
         title={runCountTitle(props.bottomPanelOpen, props.running, props.queuedRunCount, props.t)}
+        aria-label={runCountTitle(props.bottomPanelOpen, props.running, props.queuedRunCount, props.t)}
         onClick={props.onToggleLogs}
       >
         <ListChecks size={14} />
@@ -174,12 +177,13 @@ export function RunActionBar(props: {
         type="button"
         className={props.bottomPanelOpen ? "run-action-button active" : "run-action-button"}
         title={props.bottomPanelOpen ? props.t("runControls.collapseLogs") : props.t("runControls.expandLogs")}
+        aria-label={props.bottomPanelOpen ? props.t("runControls.collapseLogs") : props.t("runControls.expandLogs")}
         onClick={props.onToggleLogs}
       >
         <TerminalSquare size={15} />
         <span>{props.t("runControls.logs")}</span>
       </button>
-      <span className={`run-action-status ${statusClassName}`}>{statusText}</span>
+      <span className={`run-action-status ${statusClassName}`} aria-live="polite">{statusText}</span>
       {queueText ? <span className="run-action-queue-count" title={props.t("runControls.queuedRuns")}>{queueText}</span> : null}
       {progressText ? <span className="run-action-progress-count" title={props.t("runControls.progressNodes")}>{progressText}</span> : null}
       <span className={progressClassName} aria-hidden="true" />

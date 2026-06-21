@@ -60,8 +60,6 @@ export const defaultMainToolbarActions: MainToolbarActionId[] = [
   "validate",
   "fitGraph",
   "resetZoom",
-  "run",
-  "stepRun",
   "minimap",
   "links",
   "prefsPanel",

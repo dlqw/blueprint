@@ -1,73 +1,73 @@
 {
-  "format": "blueprint-graph",
-  "version": 1,
-  "kind": "macro",
-  "id": "trace-macro",
-  "name": "Trace Macro",
   "description": "Compile-time macro that expands into a debug log node.",
+  "format": "blueprint-graph",
+  "id": "trace-macro",
+  "kind": "macro",
+  "layout": {
+    "viewport": {
+      "x": 250.67906499999992,
+      "y": 105.89433399999994,
+      "zoom": 0.5314410000000002
+    }
+  },
+  "links": [
+    {
+      "flowKind": "control",
+      "fromNodeId": "entry",
+      "fromPortId": "then",
+      "id": "link-entry-log",
+      "toNodeId": "log1",
+      "toPortId": "exec"
+    },
+    {
+      "flowKind": "control",
+      "fromNodeId": "log1",
+      "fromPortId": "then",
+      "id": "link-log-end",
+      "toNodeId": "end",
+      "toPortId": "exec"
+    }
+  ],
+  "name": "Trace Macro",
+  "nodes": [
+    {
+      "id": "entry",
+      "inputBindings": {},
+      "position": {
+        "x": 80,
+        "y": 120
+      },
+      "templateId": "builtin.control.entry"
+    },
+    {
+      "id": "log1",
+      "inputBindings": {
+        "message": {
+          "literalValue": "Trace macro expanded",
+          "portId": "message",
+          "sourceKind": "literal"
+        }
+      },
+      "position": {
+        "x": 420,
+        "y": 120
+      },
+      "templateId": "builtin.debug.log"
+    },
+    {
+      "id": "end",
+      "inputBindings": {},
+      "position": {
+        "x": 760,
+        "y": 120
+      },
+      "templateId": "builtin.control.end"
+    }
+  ],
   "templateMetadata": {
     "creationPath": "Macros/Debug",
     "inputs": [],
     "outputs": []
   },
-  "nodes": [
-    {
-      "id": "entry",
-      "templateId": "builtin.control.entry",
-      "position": {
-        "x": 80,
-        "y": 120
-      },
-      "inputBindings": {}
-    },
-    {
-      "id": "log1",
-      "templateId": "builtin.debug.log",
-      "position": {
-        "x": 420,
-        "y": 120
-      },
-      "inputBindings": {
-        "message": {
-          "portId": "message",
-          "sourceKind": "literal",
-          "literalValue": "Trace macro expanded"
-        }
-      }
-    },
-    {
-      "id": "end",
-      "templateId": "builtin.control.end",
-      "position": {
-        "x": 760,
-        "y": 120
-      },
-      "inputBindings": {}
-    }
-  ],
-  "links": [
-    {
-      "id": "link-entry-log",
-      "fromNodeId": "entry",
-      "fromPortId": "then",
-      "toNodeId": "log1",
-      "toPortId": "exec",
-      "flowKind": "control"
-    },
-    {
-      "id": "link-log-end",
-      "fromNodeId": "log1",
-      "fromPortId": "then",
-      "toNodeId": "end",
-      "toPortId": "exec",
-      "flowKind": "control"
-    }
-  ],
-  "layout": {
-    "viewport": {
-      "x": 0,
-      "y": 0,
-      "zoom": 1
-    }
-  }
+  "version": 1
 }

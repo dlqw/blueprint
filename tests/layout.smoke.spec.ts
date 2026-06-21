@@ -21,7 +21,7 @@ test.describe("desktop layout smoke", () => {
     await expect(page.locator(".topbar .lucide-circle-dot")).toHaveCount(0);
     const topbarBox = await visibleBox(page, ".topbar");
     expect(topbarBox.height, "topbar compact height").toBeLessThanOrEqual(44);
-    await assertToolbarFilledAndRunCentered(page);
+    await assertDefaultRunControls(page);
     await toolbarOverflowButton(page).click();
     await expect(page.locator(".toolbar-overflow-menu")).toBeVisible();
     await assertInsideViewport(page, ".toolbar-overflow-menu");
@@ -32,11 +32,51 @@ test.describe("desktop layout smoke", () => {
     await page.setViewportSize({ width: 960, height: 720 });
     await openEditor(page);
     await assertLayout(page);
-    await assertToolbarFilledAndRunCentered(page);
+    await assertDefaultRunControls(page);
     await toolbarOverflowButton(page).click();
     await expect(page.locator(".toolbar-overflow-menu")).toBeVisible();
     await assertInsideViewport(page, ".toolbar-overflow-menu");
     await page.screenshot({ path: test.info().outputPath("layout-narrow.png"), fullPage: true });
+  });
+
+  test("compact 390px viewport keeps settings and run controls usable", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 720 });
+    await openEditor(page);
+    await expectNoHorizontalOverflow(page);
+    await assertInsideViewport(page, ".desktop-shell");
+    await assertInsideViewport(page, ".desktop-editor");
+    await assertInsideViewport(page, ".topbar");
+    await assertInsideViewport(page, ".canvas");
+    await assertInsideViewport(page, ".run-actionbar");
+    await assertDefaultRunControls(page);
+    await expect(page.locator(".minimap")).toBeHidden();
+
+    await editorSettingsButton(page).click();
+    await expect(editorSettingsPanel(page)).toBeVisible();
+    await assertInsideViewport(page, ".editor-settings-panel");
+    await page.getByRole("tab", { name: /^(主工具栏|Main toolbar)$/ }).click();
+    await expect(page.getByLabel(/^(主工具栏按钮|Main toolbar buttons)$/)).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await page.screenshot({ path: test.info().outputPath("layout-compact-390-settings.png"), fullPage: true });
+  });
+
+  test("browser preview runtime emits traces without Tauri invoke", async ({ page }) => {
+    const consoleErrors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error") {
+        consoleErrors.push(message.text());
+      }
+    });
+    page.on("pageerror", (error) => {
+      consoleErrors.push(error.message);
+    });
+
+    await page.setViewportSize({ width: 960, height: 720 });
+    await openEditor(page);
+    await page.locator(".run-actionbar").getByTitle(/^(加入图运行队列|Queue graph run)$/).click({ force: true });
+    await expect(page.getByText(/^(运行[:：] Preview run completed\.|Run: Preview run completed\.)$/)).toBeVisible();
+    await expect(page.getByText(/^(轨迹|Trace) 1\/[1-9]\d*$/)).toBeVisible();
+    expect(consoleErrors.filter((message) => /invoke|__TAURI_INTERNALS__/.test(message))).toEqual([]);
   });
 
   test("high DPI viewport keeps floating graph controls separated", async ({ browser }) => {
@@ -514,48 +554,60 @@ async function assertLayout(page: Page): Promise<void> {
     ".topbar",
     ".canvas",
     ".toolbar-view-controls",
-    ".run-actionbar",
-    ".minimap"
+    ".run-actionbar"
   ]) {
     await assertInsideViewport(page, selector);
   }
+  await assertInsideViewportWhenVisible(page, ".minimap");
   await assertInsideViewportWhenVisible(page, ".desktop-nav");
   await assertInsideViewportWhenVisible(page, ".desktop-right-dock");
 
-  const boxes = await Promise.all(floatingSelectors.map((selector) => visibleBox(page, selector)));
+  const boxes = await visibleFloatingBoxes(page);
   for (let leftIndex = 0; leftIndex < boxes.length; leftIndex += 1) {
     for (let rightIndex = leftIndex + 1; rightIndex < boxes.length; rightIndex += 1) {
-      expect(overlapArea(boxes[leftIndex], boxes[rightIndex]), `${floatingSelectors[leftIndex]} overlaps ${floatingSelectors[rightIndex]}`).toBe(0);
+      expect(overlapArea(boxes[leftIndex].box, boxes[rightIndex].box), `${boxes[leftIndex].selector} overlaps ${boxes[rightIndex].selector}`).toBe(0);
     }
   }
 }
 
-async function assertToolbarFilledAndRunCentered(page: Page): Promise<void> {
+async function assertDefaultRunControls(page: Page): Promise<void> {
   const topbar = await visibleBox(page, ".topbar");
   const toolbar = await visibleBox(page, ".toolbar");
-  const runButton = await visibleBox(page, ".toolbar-run-main");
-  const iconButton = await visibleBox(page, ".toolbar-primary-tools .icon-button");
   const groupGaps = await page.locator(".toolbar > .toolbar-group").evaluateAll((groups) => {
     const rects = groups.map((group) => group.getBoundingClientRect()).sort((left, right) => left.left - right.left);
     return rects.slice(1).map((rect, index) => rect.left - rects[index].right);
   });
 
   expect(toolbar.width, "toolbar fills topbar").toBeGreaterThanOrEqual(topbar.width - 18);
-  expect(Math.max(...groupGaps), "toolbar groups should not leave a large empty gap").toBeLessThanOrEqual(18);
-  expect(runButton.width, "main run button emphasized").toBeGreaterThan(iconButton.width + 36);
+  if (groupGaps.length) {
+    expect(Math.max(...groupGaps), "toolbar groups should not leave a large empty gap").toBeLessThanOrEqual(18);
+  }
+  await expect(page.locator(".topbar .toolbar-run-controls")).toHaveCount(0);
+  await expect(page.locator(".toolbar-run-main")).toHaveCount(0);
+  await expect(page.locator(".run-actionbar")).toBeVisible();
 }
 
 async function assertSelectionToolboxLayout(page: Page): Promise<void> {
   await expectNoHorizontalOverflow(page);
   await assertInsideViewport(page, ".selection-toolbox");
   const toolbox = await visibleBox(page, ".selection-toolbox");
-  for (const selector of floatingSelectors) {
-    const other = await visibleBox(page, selector);
+  for (const { selector, box: other } of await visibleFloatingBoxes(page)) {
     expect(
       overlapArea(toolbox, other),
       `.selection-toolbox overlaps ${selector}: ${JSON.stringify({ toolbox, other })}`
     ).toBe(0);
   }
+}
+
+async function visibleFloatingBoxes(page: Page): Promise<Array<{ selector: string; box: Box }>> {
+  const boxes: Array<{ selector: string; box: Box }> = [];
+  for (const selector of floatingSelectors) {
+    const locator = page.locator(selector).first();
+    if (await locator.isVisible()) {
+      boxes.push({ selector, box: await visibleBox(page, selector) });
+    }
+  }
+  return boxes;
 }
 
 async function assertCommentBoxUsesColor(page: Page, color: string): Promise<void> {

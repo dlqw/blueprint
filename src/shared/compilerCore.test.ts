@@ -31,6 +31,12 @@ describe("compileGraphToProject", () => {
     const generated = await fs.readFile(path.join(lastTempDir, "Test.ts"), "utf8");
     expect(generated).toContain("// Macro macro-trace-log: Trace Log");
     expect(generated).toContain('console.log("Hello Blueprint");');
+    const macroCallStarted = generated.indexOf('await traceBlueprintNode("test", "macro-trace-log", "Trace Log"');
+    const macroInternalLog = generated.indexOf('await traceBlueprintNode("trace-log", "log1", "Log"');
+    const macroCallCompleted = generated.indexOf('traceBlueprintNodeComplete("test", "macro-trace-log", "Trace Log")');
+    expect(macroCallStarted).toBeGreaterThanOrEqual(0);
+    expect(macroInternalLog).toBeGreaterThan(macroCallStarted);
+    expect(macroCallCompleted).toBeGreaterThan(macroInternalLog);
   });
 
   it("passes collapsed macro inputs into the embedded macro entry outputs", async () => {

@@ -322,6 +322,12 @@ interface RuntimeHistoryEntry {
   createdAt: number;
 }
 
+interface RuntimeLiveRun {
+  id: string;
+  startedAt: number;
+  traces: RuntimeTraceEvent[];
+}
+
 interface RuntimeRunComparison {
   previousDurationMs: number;
   durationDeltaMs: number;
@@ -453,12 +459,16 @@ export function App(props: AppProps = {}): JSX.Element {
   const [compileMessage, setCompileMessage] = useState("");
   const [runtimeOutput, setRuntimeOutput] = useState<RuntimeHistoryEntry | undefined>();
   const [runtimeHistory, setRuntimeHistory] = useState<RuntimeHistoryEntry[]>([]);
+  const [runtimeLiveRun, setRuntimeLiveRun] = useState<RuntimeLiveRun | undefined>();
   const [runtimeNodeStatus, setRuntimeNodeStatus] = useState<Map<string, RuntimeTraceEvent>>(new Map());
   const [runtimeQueueStatus, setRuntimeQueueStatus] = useState<RuntimeQueueStatus>({ running: false, queuedRuns: 0 });
   const [refactorResult, setRefactorResult] = useState<RefactorResultMessage | undefined>();
   const [activeRuntimeTraceIndex, setActiveRuntimeTraceIndex] = useState<number | undefined>();
+  const [runtimeDetailsOpenRequest, setRuntimeDetailsOpenRequest] = useState(0);
   const [isRuntimeRunning, setIsRuntimeRunning] = useState(false);
   const activeRuntimeRunIdRef = useRef<string | undefined>();
+  const activeRuntimeGraphIdRef = useRef<string | undefined>();
+  const runtimeTraceBufferRef = useRef<Map<string, RuntimeTraceEvent[]>>(new Map());
   const [breakpoints, setBreakpoints] = useState<BlueprintBreakpoint[]>(() => readBreakpoints(hostClient.getState()));
   const [categoryAccents, setCategoryAccents] = useState<CategoryAccentMap>({});
   const [templateRegistrySources, setTemplateRegistrySources] = useState<TemplateRegistrySourceSummary[]>([]);
@@ -483,14 +493,16 @@ export function App(props: AppProps = {}): JSX.Element {
   const actionBarPlacement = editorPrefs.actionBarPlacement;
   const toolbarAlignment = editorPrefs.toolbarAlignment;
   const t = useMemo(() => createTranslator(editorPrefs.language), [editorPrefs.language]);
-  const graphReadOnly = isRuntimeRunning;
+  const hasLiveRuntimeTrace = !runtimeOutput && [...runtimeNodeStatus.values()].some((trace) => trace.status === "active" || trace.status === "paused" || trace.status === "breakpoint");
+  const isRuntimeActive = isRuntimeRunning || hasLiveRuntimeTrace;
+  const graphReadOnly = isRuntimeActive;
   useEffect(() => {
     if (externalDockPanels) {
       setLeftPanelOpen(false);
       setRightPanelOpen(false);
     }
   }, [externalDockPanels]);
-  const startPanelResize = useCallback((kind: PanelResizeState["kind"], event: React.PointerEvent<HTMLDivElement>) => {
+  const startPanelResize = useCallback((kind: PanelResizeState["kind"], event: React.PointerEvent<HTMLElement>) => {
     const rect = shellRef.current?.getBoundingClientRect();
     if (!rect) {
       return;
@@ -506,29 +518,54 @@ export function App(props: AppProps = {}): JSX.Element {
       shellHeight: rect.height
     });
   }, [panelSizes]);
-  const resizePanels = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+  const resizePanelAt = useCallback((clientX: number, clientY: number) => {
     if (!panelResize) {
       return;
     }
-    event.preventDefault();
     const leftBasis = leftPanelOpen ? panelResize.startSizes.left : 44;
     const rightBasis = rightPanelOpen ? panelResize.startSizes.right : 44;
     setPanelSizes((current) => {
       if (panelResize.kind === "left") {
         const maxLeft = Math.max(188, Math.min(520, panelResize.shellWidth - rightBasis - 332));
-        return { ...current, left: Math.round(clamp(panelResize.startSizes.left + event.clientX - panelResize.startX, 188, maxLeft)) };
+        return { ...current, left: Math.round(clamp(panelResize.startSizes.left + clientX - panelResize.startX, 188, maxLeft)) };
       }
       if (panelResize.kind === "right") {
         const maxRight = Math.max(240, Math.min(560, panelResize.shellWidth - leftBasis - 332));
-        return { ...current, right: Math.round(clamp(panelResize.startSizes.right - (event.clientX - panelResize.startX), 240, maxRight)) };
+        return { ...current, right: Math.round(clamp(panelResize.startSizes.right - (clientX - panelResize.startX), 240, maxRight)) };
       }
-      const maxBottom = Math.max(120, Math.min(420, panelResize.shellHeight - 260));
-      return { ...current, bottom: Math.round(clamp(panelResize.startSizes.bottom - (event.clientY - panelResize.startY), 120, maxBottom)) };
+      const maxBottom = Math.max(120, Math.min(560, panelResize.shellHeight - 220));
+      return { ...current, bottom: Math.round(clamp(panelResize.startSizes.bottom - (clientY - panelResize.startY), 120, maxBottom)) };
     });
   }, [leftPanelOpen, panelResize, rightPanelOpen]);
+  const resizePanels = useCallback((event: React.PointerEvent<HTMLElement>) => {
+    if (!panelResize) {
+      return;
+    }
+    event.preventDefault();
+    resizePanelAt(event.clientX, event.clientY);
+  }, [panelResize, resizePanelAt]);
   const stopPanelResize = useCallback(() => {
     setPanelResize(undefined);
   }, []);
+
+  useEffect(() => {
+    if (!panelResize) {
+      return;
+    }
+    const onPointerMove = (event: PointerEvent) => {
+      event.preventDefault();
+      resizePanelAt(event.clientX, event.clientY);
+    };
+    const onPointerEnd = () => stopPanelResize();
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerEnd);
+    window.addEventListener("pointercancel", onPointerEnd);
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerEnd);
+      window.removeEventListener("pointercancel", onPointerEnd);
+    };
+  }, [panelResize, resizePanelAt, stopPanelResize]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -838,17 +875,32 @@ export function App(props: AppProps = {}): JSX.Element {
     const listener = (event: MessageEvent<HostToEditorMessage>) => {
       const message = event.data;
       if (message.type === "loadGraph") {
+        const activeRunId = activeRuntimeRunIdRef.current;
+        const activeRunTraces = activeRunId ? runtimeTraceBufferRef.current.get(activeRunId) ?? [] : [];
+        const preserveActiveRuntime = Boolean(activeRunId);
         const restoredRuntime = readRuntimeHistoryState(hostClient.getState(), message.graph.id);
         graphRef.current = message.graph;
         setGraph(message.graph);
         setLoadingTimedOut(false);
-        setRuntimeNodeStatus(runtimeStatusByNodeId(message.graph.id, restoredRuntime.active?.traces ?? []));
-        setRuntimeOutput(restoredRuntime.active);
+        setRuntimeNodeStatus(runtimeStatusForGraph(
+          message.graph,
+          effectiveTemplatesForRuntime(message.graph, templatesRef.current),
+          preserveActiveRuntime ? activeRunTraces : restoredRuntime.active?.traces ?? []
+        ));
+        if (!preserveActiveRuntime) {
+          activeRuntimeGraphIdRef.current = undefined;
+          setRuntimeOutput(restoredRuntime.active);
+        }
         setRefactorResult(undefined);
-        setActiveRuntimeTraceIndex(undefined);
-        setIsRuntimeRunning(false);
-        setRuntimeQueueStatus({ running: false, queuedRuns: 0 });
-        setRuntimeHistory(restoredRuntime.history);
+        if (!preserveActiveRuntime) {
+          setActiveRuntimeTraceIndex(undefined);
+          setIsRuntimeRunning(false);
+          setRuntimeQueueStatus({ running: false, queuedRuns: 0 });
+          setRuntimeHistory(restoredRuntime.history);
+          setRuntimeLiveRun(undefined);
+        } else {
+          setActiveRuntimeTraceIndex(undefined);
+        }
         setWireMenu(undefined);
         setNodeMenu(undefined);
         setCommentMenu(undefined);
@@ -890,35 +942,61 @@ export function App(props: AppProps = {}): JSX.Element {
         setRuntimeOutput(undefined);
         setActiveRuntimeTraceIndex(undefined);
       } else if (message.type === "runtimeQueueStatus") {
+        if (message.status.running) {
+          activeRuntimeRunIdRef.current = message.status.activeRunId ?? activeRuntimeRunIdRef.current;
+        } else {
+          const activeRunId = activeRuntimeRunIdRef.current;
+          const hasPendingLocalRun = Boolean(message.status.queuedRuns && activeRunId && runtimeTraceBufferRef.current.has(activeRunId));
+          if (!hasPendingLocalRun) {
+            activeRuntimeRunIdRef.current = undefined;
+          }
+        }
         setRuntimeQueueStatus(message.status);
-        setIsRuntimeRunning(message.status.running);
+        setIsRuntimeRunning(message.status.running || Boolean(message.status.queuedRuns && activeRuntimeRunIdRef.current));
       } else if (message.type === "runtimeResult") {
         if (message.runId && activeRuntimeRunIdRef.current && message.runId !== activeRuntimeRunIdRef.current) {
           return;
         }
+        const runtimeAlreadyActive = message.message.toLowerCase().includes("runtime run is already active");
+        const traceBufferKey = message.runId ?? activeRuntimeRunIdRef.current;
+        const bufferedTraces = traceBufferKey ? runtimeTraceBufferRef.current.get(traceBufferKey) ?? [] : [];
+        const resultTraces = runtimeAlreadyActive ? message.traces : message.traces.length ? message.traces : bufferedTraces;
+        if (traceBufferKey) {
+          runtimeTraceBufferRef.current.delete(traceBufferKey);
+        }
         activeRuntimeRunIdRef.current = undefined;
+        const resultGraphId = activeRuntimeGraphIdRef.current ?? graphRef.current?.id;
+        activeRuntimeGraphIdRef.current = undefined;
         setIsRuntimeRunning(false);
+        setRuntimeLiveRun(undefined);
+        if (runtimeAlreadyActive) {
+          setRuntimeNodeStatus(new Map());
+        }
         setRuntimeQueueStatus((current) => current.queuedRuns ? { ...current, running: false } : { running: false, queuedRuns: 0 });
         setRefactorResult(undefined);
         const entry: RuntimeHistoryEntry = {
           id: `run-${Date.now().toString(36)}-${message.durationMs}`,
-          graphId: graphRef.current?.id,
+          graphId: resultGraphId,
           ok: message.ok,
           message: message.message,
           text: formatRuntimeText(message.stdout, message.stderr, message.message),
           durationMs: message.durationMs,
-          traces: message.traces,
+          traces: resultTraces,
           createdAt: Date.now()
         };
         setRuntimeOutput(entry);
-        setActiveRuntimeTraceIndex(message.traces.length ? 0 : undefined);
+        setActiveRuntimeTraceIndex(resultTraces.length ? 0 : undefined);
         setRuntimeHistory((current) => {
           const next = limitRuntimeHistory([entry, ...current.filter((candidate) => candidate.id !== entry.id)], entry.id);
           persistRuntimeHistoryState(next, entry.id);
           return next;
         });
-        setRuntimeNodeStatus(runtimeStatusByNodeId(graphRef.current?.id, message.traces));
-        const interruptTrace = [...message.traces].reverse().find((trace) => trace.status === "breakpoint" || trace.status === "error");
+        setRuntimeNodeStatus(runtimeStatusForGraph(
+          graphRef.current,
+          effectiveTemplatesForRuntime(graphRef.current, templatesRef.current),
+          resultTraces
+        ));
+        const interruptTrace = [...resultTraces].reverse().find((trace) => trace.status === "breakpoint" || trace.status === "error");
         if (interruptTrace) {
           focusNodeById(interruptTrace.nodeId);
         }
@@ -930,7 +1008,29 @@ export function App(props: AppProps = {}): JSX.Element {
         if (message.runId && activeRuntimeRunIdRef.current && message.runId !== activeRuntimeRunIdRef.current) {
           return;
         }
-        setRuntimeNodeStatus((current) => applyRuntimeTraceStatus(graphRef.current?.id, current, message.trace));
+        if (message.runId) {
+          activeRuntimeRunIdRef.current = message.runId;
+          setIsRuntimeRunning(true);
+          setRuntimeQueueStatus((current) => ({ ...current, running: true, activeRunId: message.runId }));
+        }
+        const traceBufferKey = message.runId ?? activeRuntimeRunIdRef.current;
+        if (traceBufferKey) {
+          runtimeTraceBufferRef.current.set(traceBufferKey, [
+            ...(runtimeTraceBufferRef.current.get(traceBufferKey) ?? []),
+            message.trace
+          ]);
+          setRuntimeLiveRun((current) => {
+            const startedAt = current?.id === traceBufferKey ? current.startedAt : Date.now();
+            const traces = current?.id === traceBufferKey ? current.traces : [];
+            return { id: traceBufferKey, startedAt, traces: [...traces, message.trace] };
+          });
+        }
+        setRuntimeNodeStatus((current) => applyRuntimeTraceStatusForGraph(
+          graphRef.current,
+          effectiveTemplatesForRuntime(graphRef.current, templatesRef.current),
+          current,
+          message.trace
+        ));
       } else if (message.type === "focusNode") {
         focusNodeById(message.nodeId);
       } else if (message.type === "runCommand") {
@@ -942,9 +1042,12 @@ export function App(props: AppProps = {}): JSX.Element {
     };
 
     window.addEventListener("message", listener);
-    hostClient.notifyReady();
     return () => window.removeEventListener("message", listener);
   }, [focusNodeById, persistRuntimeHistoryState, hostClient]);
+
+  useEffect(() => {
+    hostClient.notifyReady();
+  }, [hostClient]);
 
   useEffect(() => {
     if (graph) {
@@ -2182,10 +2285,16 @@ export function App(props: AppProps = {}): JSX.Element {
   };
 
   const requestRun = () => {
+    if (isRuntimeActive) {
+      return;
+    }
     if (graph) {
       const runId = `run-${Date.now().toString(36)}`;
       activeRuntimeRunIdRef.current = runId;
+      activeRuntimeGraphIdRef.current = graph.id;
+      runtimeTraceBufferRef.current.set(runId, []);
       setIsRuntimeRunning(true);
+      setRuntimeLiveRun({ id: runId, startedAt: Date.now(), traces: [] });
       setRuntimeQueueStatus({ running: true, queuedRuns: 0 });
       setRuntimeNodeStatus(new Map());
       setRuntimeOutput(undefined);
@@ -2195,10 +2304,17 @@ export function App(props: AppProps = {}): JSX.Element {
   };
 
   const requestStepRun = () => {
+    if (isRuntimeActive) {
+      requestRuntimeStep();
+      return;
+    }
     if (graph) {
       const runId = `run-${Date.now().toString(36)}`;
       activeRuntimeRunIdRef.current = runId;
+      activeRuntimeGraphIdRef.current = graph.id;
+      runtimeTraceBufferRef.current.set(runId, []);
       setIsRuntimeRunning(true);
+      setRuntimeLiveRun({ id: runId, startedAt: Date.now(), traces: [] });
       setRuntimeQueueStatus({ running: true, queuedRuns: 0 });
       setRuntimeNodeStatus(new Map());
       setRuntimeOutput(undefined);
@@ -2261,11 +2377,14 @@ export function App(props: AppProps = {}): JSX.Element {
     focusNodeById(nodeId);
   };
 
-  const selectRuntimeHistory = (entry: RuntimeHistoryEntry) => {
+  const selectRuntimeHistory = (entry: RuntimeHistoryEntry, options: { openDetails?: boolean } = {}) => {
     setRuntimeOutput(entry);
     setActiveRuntimeTraceIndex(entry.traces.length ? 0 : undefined);
-    setRuntimeNodeStatus(runtimeStatusByNodeId(graph?.id, entry.traces));
+    setRuntimeNodeStatus(runtimeStatusForGraph(graph, graphTemplates, entry.traces));
     persistRuntimeHistoryState(runtimeHistory, entry.id);
+    if (options.openDetails) {
+      setRuntimeDetailsOpenRequest((current) => current + 1);
+    }
   };
 
   const renameRuntimeHistory = (entry: RuntimeHistoryEntry) => {
@@ -2293,31 +2412,48 @@ export function App(props: AppProps = {}): JSX.Element {
     setRuntimeHistory(nextHistory);
     setRuntimeOutput(nextActive);
     setActiveRuntimeTraceIndex(nextActive?.traces.length ? 0 : undefined);
-    setRuntimeNodeStatus(runtimeStatusByNodeId(graph?.id, nextActive?.traces ?? []));
+    setRuntimeNodeStatus(runtimeStatusForGraph(graph, graphTemplates, nextActive?.traces ?? []));
     persistRuntimeHistoryState(nextHistory, nextActive?.id);
   };
 
   const clearRuntimeHistory = () => {
     setRuntimeHistory([]);
     setRuntimeOutput(undefined);
+    setRuntimeLiveRun(undefined);
     setActiveRuntimeTraceIndex(undefined);
     setRuntimeNodeStatus(new Map());
     persistRuntimeHistoryState([], undefined);
   };
 
-  const selectRuntimeTraceStep = (index: number) => {
+  const selectRuntimeTraceStep = (index: number, options: { openDetails?: boolean } = {}) => {
     if (!runtimeOutput?.traces.length) {
       return;
     }
     const safeIndex = clamp(Math.round(index), 0, runtimeOutput.traces.length - 1);
     const trace = runtimeOutput.traces[safeIndex];
     setActiveRuntimeTraceIndex(safeIndex);
-    setRuntimeNodeStatus(runtimeStatusByNodeId(graph?.id, runtimeOutput.traces, trace));
-    if (graph?.id && trace.graphId !== graph.id) {
+    setRuntimeNodeStatus(runtimeStatusForGraph(graph, graphTemplates, runtimeOutput.traces, trace));
+    const targetNodeId = runtimeTraceTargetNodeId(graph, graphTemplates, trace);
+    if (targetNodeId) {
+      setSelectedNodeIds(new Set([targetNodeId]));
+      setSelectedLinkIds(new Set());
+      setSelectedCommentIds(new Set());
+    }
+    if (options.openDetails) {
+      setRuntimeDetailsOpenRequest((current) => current + 1);
+    }
+  };
+
+  const selectRuntimeLiveTraceStep = (index: number) => {
+    if (!runtimeLiveRun?.traces.length) {
       return;
     }
-    if (graph?.nodes.some((node) => node.id === trace.nodeId)) {
-      setSelectedNodeIds(new Set([trace.nodeId]));
+    const safeIndex = clamp(Math.round(index), 0, runtimeLiveRun.traces.length - 1);
+    const trace = runtimeLiveRun.traces[safeIndex];
+    setRuntimeNodeStatus(runtimeStatusForGraph(graph, graphTemplates, runtimeLiveRun.traces, trace));
+    const targetNodeId = runtimeTraceTargetNodeId(graph, graphTemplates, trace);
+    if (targetNodeId) {
+      setSelectedNodeIds(new Set([targetNodeId]));
       setSelectedLinkIds(new Set());
       setSelectedCommentIds(new Set());
     }
@@ -2360,8 +2496,8 @@ export function App(props: AppProps = {}): JSX.Element {
   const linksVisible = linkRenderMode !== "hidden";
   const errorCount = issues.filter((issue) => issue.severity === "error").length;
   const warningCount = issues.filter((issue) => issue.severity === "warning").length;
-  const runtimeActionState = runtimeSurfaceState(isRuntimeRunning, runtimeQueueStatus.queuedRuns, runtimeNodeStatus, runtimeOutput);
-  const runtimeProgressCount = isRuntimeRunning ? runtimeNodeStatus.size : 0;
+  const runtimeActionState = runtimeSurfaceState(isRuntimeActive, runtimeQueueStatus.queuedRuns, runtimeNodeStatus, runtimeOutput, runtimeLiveRun?.traces);
+  const runtimeProgressCount = isRuntimeActive ? runtimeNodeStatus.size : 0;
   const canAlignSelection = !graphReadOnly && selectedNodeIds.size >= 2;
   const canDistributeSelection = !graphReadOnly && selectedNodeIds.size >= 3;
   const selectedNodeLinkCount = incidentLinkIds(graph, selectedNodeIds).size;
@@ -2396,12 +2532,16 @@ export function App(props: AppProps = {}): JSX.Element {
         const toolboxHeight = 44;
         const actionBarRect = typeof document === "undefined" ? undefined : document.querySelector(".run-actionbar")?.getBoundingClientRect();
         const minimapRect = typeof document === "undefined" ? undefined : document.querySelector(".minimap")?.getBoundingClientRect();
+        const runPanelRect = typeof document === "undefined" ? undefined : document.querySelector(".run-panel")?.getBoundingClientRect();
         const actionBarAvoidanceMaxY = actionBarPlacement === "bottom" && actionBarRect
           ? actionBarRect.top - 8 - toolboxHeight
           : Number.POSITIVE_INFINITY;
+        const runPanelAvoidanceMaxY = bottomPanelOpen && runPanelRect
+          ? runPanelRect.top - 8 - toolboxHeight
+          : Number.POSITIVE_INFINITY;
         const minimapAvoidanceMaxX = minimapVisible && minimapRect ? minimapRect.left - 8 - toolboxWidth : Number.POSITIVE_INFINITY;
         const maxToolboxX = Math.min(viewportWidth - toolboxWidth, canvasLeft + canvasWidth - toolboxWidth, minimapAvoidanceMaxX);
-        const maxToolboxY = Math.min(viewportHeight - toolboxHeight, canvasTop + canvasHeight - selectionToolboxBottomReserve, actionBarAvoidanceMaxY);
+        const maxToolboxY = Math.min(viewportHeight - toolboxHeight, canvasTop + canvasHeight - selectionToolboxBottomReserve, actionBarAvoidanceMaxY, runPanelAvoidanceMaxY);
         return {
           x: clamp(
             canvasLeft + selectionBounds.x * viewport.zoom + viewport.x + selectionBounds.width * viewport.zoom / 2 - toolboxWidth / 2,
@@ -2526,9 +2666,9 @@ export function App(props: AppProps = {}): JSX.Element {
     { id: "graph.distributeHorizontal", title: t("commands.graph.distributeHorizontal"), category: commandCategories.layout, run: () => distributeSelection("horizontal"), disabled: !canDistributeSelection },
     { id: "graph.distributeVertical", title: t("commands.graph.distributeVertical"), category: commandCategories.layout, run: () => distributeSelection("vertical"), disabled: !canDistributeSelection },
     { id: "runtime.compile", title: t("commands.runtime.compile"), category: commandCategories.run, shortcut: "Ctrl+Shift+B", run: requestCompile },
-    { id: "runtime.run", title: isRuntimeRunning ? t("commands.runtime.cancelRun") : t("commands.runtime.runGraph"), category: commandCategories.run, shortcut: "Ctrl+Enter", run: isRuntimeRunning ? requestCancelRun : requestRun },
-    { id: "runtime.stepRun", title: isRuntimeRunning ? t("commands.runtime.stepRuntime") : t("commands.runtime.stepRun"), category: commandCategories.run, shortcut: "Ctrl+Shift+Enter", run: isRuntimeRunning ? requestRuntimeStep : requestStepRun },
-    { id: "runtime.continue", title: t("commands.runtime.continue"), category: commandCategories.run, run: requestRuntimeContinue, disabled: !isRuntimeRunning },
+    { id: "runtime.run", title: isRuntimeActive ? t("commands.runtime.cancelRun") : t("commands.runtime.runGraph"), category: commandCategories.run, shortcut: "Ctrl+Enter", run: isRuntimeActive ? requestCancelRun : requestRun },
+    { id: "runtime.stepRun", title: isRuntimeActive ? t("commands.runtime.stepRuntime") : t("commands.runtime.stepRun"), category: commandCategories.run, shortcut: "Ctrl+Shift+Enter", run: isRuntimeActive ? requestRuntimeStep : requestStepRun },
+    { id: "runtime.continue", title: t("commands.runtime.continue"), category: commandCategories.run, run: requestRuntimeContinue, disabled: !isRuntimeActive },
     { id: "runtime.toggleBreakpoint", title: t("commands.runtime.toggleBreakpoint"), category: commandCategories.debug, run: toggleBreakpoint, disabled: !selectedNodeId },
     { id: "graph.validate", title: t("commands.runtime.validate"), category: commandCategories.run, run: () => hostClient.requestValidation(graph) }
   ] satisfies EditorCommand[];
@@ -2553,35 +2693,41 @@ export function App(props: AppProps = {}): JSX.Element {
   } as CSSProperties;
   const outputStatus = <strong className="run-panel-title">{t("runPanel.logs")}</strong>;
   const outputSummary = (
-    <DiagnosticStrip
+    <RunPanelSummary
       issues={issues}
-      focusedIssueKey={focusedIssueKey}
       compileMessage={compileMessage}
       refactorResult={refactorResult}
       runtimeOutput={runtimeOutput}
+      runtimeRunning={isRuntimeActive}
       runtimeHistory={runtimeHistory}
+      liveTraceCount={runtimeLiveRun?.traces.length ?? 0}
       activeRuntimeTraceIndex={activeRuntimeTraceIndex}
+      runtimeDetailsOpenRequest={runtimeDetailsOpenRequest}
       t={t}
       traceLabel={runtimeTraceLabeler(graph, graphTemplates, editorPrefs.language, editorPrefs.nodeLabelMode)}
-      onIssueFocus={focusIssue}
-      onRuntimeHistorySelect={selectRuntimeHistory}
-      onRuntimeHistoryRename={renameRuntimeHistory}
-      onRuntimeHistoryPin={toggleRuntimeHistoryPin}
-      onRuntimeHistoryDelete={deleteRuntimeHistory}
-      onRuntimeHistoryClear={clearRuntimeHistory}
       onRuntimeTraceStep={selectRuntimeTraceStep}
     />
   );
   const outputDetails = (
-    <>
-      {runtimeOutput ? (
-        <pre className={runtimeOutput.ok ? "run-log ok" : "run-log error"}>{runtimeOutput.text || runtimeOutput.message}</pre>
-      ) : issues.length ? (
-        <RunLogIssueList issues={issues} t={t} onIssueFocus={focusIssue} />
-      ) : (
-        <pre className="run-log">{compileMessage || t("common.ready")}</pre>
-      )}
-    </>
+    <RunConsole
+      issues={issues}
+      compileMessage={compileMessage}
+      refactorResult={refactorResult}
+      runtimeOutput={runtimeOutput}
+      runtimeHistory={runtimeHistory}
+      runtimeLiveRun={runtimeLiveRun}
+      activeRuntimeTraceIndex={activeRuntimeTraceIndex}
+      t={t}
+      traceLabel={runtimeTraceLabeler(graph, graphTemplates, editorPrefs.language, editorPrefs.nodeLabelMode)}
+      onIssueFocus={focusIssue}
+      onRuntimeHistorySelect={(entry) => selectRuntimeHistory(entry, { openDetails: true })}
+      onRuntimeHistoryRename={renameRuntimeHistory}
+      onRuntimeHistoryPin={toggleRuntimeHistoryPin}
+      onRuntimeHistoryDelete={deleteRuntimeHistory}
+      onRuntimeHistoryClear={clearRuntimeHistory}
+      onRuntimeTraceStep={(index) => selectRuntimeTraceStep(index, { openDetails: true })}
+      onRuntimeLiveTraceStep={selectRuntimeLiveTraceStep}
+    />
   );
   const toolbarOverflowActions: ToolbarOverflowAction[] = [
     { id: "compile", title: t("commands.runtime.compile"), section: t("toolbarOverflow.quick"), tier: "secondary", icon: <TerminalSquare size={14} />, run: requestCompile },
@@ -2631,25 +2777,25 @@ export function App(props: AppProps = {}): JSX.Element {
       return null;
     }
     return (
-      <button key={id} className="icon-button" title={action.title} onClick={action.run} disabled={action.disabled}>
+      <button key={id} className="icon-button" title={action.title} aria-label={action.title} onClick={action.run} disabled={action.disabled}>
         {action.icon}
       </button>
     );
   };
   const primaryToolbarItems = [
-    mainToolbarActionVisible("commandPalette") ? <button key="commandPalette" className="icon-button" title={t("toolbar.commandPalette")} onClick={() => setCommandPaletteOpen(true)}><Command size={16} /></button> : null,
+    mainToolbarActionVisible("commandPalette") ? <button key="commandPalette" className="icon-button" title={t("toolbar.commandPalette")} aria-label={t("toolbar.commandPalette")} onClick={() => setCommandPaletteOpen(true)}><Command size={16} /></button> : null,
     mainToolbarActionVisible("compile") ? promotedActionButton("compile") : null,
     mainToolbarActionVisible("validate") ? promotedActionButton("validate") : null,
     mainToolbarActionVisible("findNode") ? promotedActionButton("findNode") : null,
-    mainToolbarActionVisible("fitGraph") ? <button key="fitGraph" className="icon-button" title={t("canvasCommands.fitGraph")} onClick={fitGraphToCanvas} disabled={viewportLocked}><Focus size={16} /></button> : null,
-    mainToolbarActionVisible("resetZoom") ? <button key="resetZoom" className="icon-button text-button" title={t("canvasCommands.resetZoom")} onClick={() => zoomViewportAtCanvasCenter(1)} disabled={viewportLocked}>{Math.round(viewport.zoom * 100)}%</button> : null
+    mainToolbarActionVisible("fitGraph") ? <button key="fitGraph" className="icon-button" title={t("canvasCommands.fitGraph")} aria-label={t("canvasCommands.fitGraph")} onClick={fitGraphToCanvas} disabled={viewportLocked}><Focus size={16} /></button> : null,
+    mainToolbarActionVisible("resetZoom") ? <button key="resetZoom" className="icon-button text-button" title={t("canvasCommands.resetZoom")} aria-label={t("canvasCommands.resetZoom")} onClick={() => zoomViewportAtCanvasCenter(1)} disabled={viewportLocked}>{Math.round(viewport.zoom * 100)}%</button> : null
   ].filter(Boolean);
   const viewToolbarItems = [
-    mainToolbarActionVisible("minimap") ? <button key="minimap" className={minimapVisible ? "icon-button active" : "icon-button"} title={minimapVisible ? t("canvasCommands.hideMinimap") : t("canvasCommands.showMinimap")} onClick={() => updateEditorPrefs({ minimapVisible: !minimapVisible })}><MapIcon size={16} /></button> : null,
-    mainToolbarActionVisible("links") ? <button key="links" className={linksVisible ? "icon-button active" : "icon-button"} title={linksVisible ? t("canvasCommands.hideLinks") : t("canvasCommands.showLinks")} onClick={() => updateEditorPrefs({ linkRenderMode: linkRenderMode === "hidden" ? "spline" : "hidden" })}>{linksVisible ? <Eye size={16} /> : <EyeOff size={16} />}</button> : null,
+    mainToolbarActionVisible("minimap") ? <button key="minimap" className={minimapVisible ? "icon-button active" : "icon-button"} title={minimapVisible ? t("canvasCommands.hideMinimap") : t("canvasCommands.showMinimap")} aria-label={minimapVisible ? t("canvasCommands.hideMinimap") : t("canvasCommands.showMinimap")} onClick={() => updateEditorPrefs({ minimapVisible: !minimapVisible })}><MapIcon size={16} /></button> : null,
+    mainToolbarActionVisible("links") ? <button key="links" className={linksVisible ? "icon-button active" : "icon-button"} title={linksVisible ? t("canvasCommands.hideLinks") : t("canvasCommands.showLinks")} aria-label={linksVisible ? t("canvasCommands.hideLinks") : t("canvasCommands.showLinks")} onClick={() => updateEditorPrefs({ linkRenderMode: linkRenderMode === "hidden" ? "spline" : "hidden" })}>{linksVisible ? <Eye size={16} /> : <EyeOff size={16} />}</button> : null,
     mainToolbarActionVisible("templateRegistry") ? promotedActionButton("templateRegistry") : null,
     mainToolbarActionVisible("prefsPanel") ? (
-      <button key="prefsPanel" className={editorSettingsOpen ? "icon-button active" : "icon-button"} title={t("toolbar.prefsPanel")} onClick={() => {
+      <button key="prefsPanel" className={editorSettingsOpen ? "icon-button active" : "icon-button"} title={t("toolbar.prefsPanel")} aria-label={t("toolbar.prefsPanel")} onClick={() => {
         setToolbarOverflowOpen(false);
         setTemplateRegistryOpen(false);
         setEditorSettingsOpen(!editorSettingsOpen);
@@ -2657,7 +2803,7 @@ export function App(props: AppProps = {}): JSX.Element {
       }}><Settings size={16} /></button>
     ) : null,
     mainToolbarActionVisible("overflow") ? (
-      <button key="overflow" className={toolbarOverflowOpen ? "icon-button active" : "icon-button"} title={t("toolbar.overflow")} onClick={() => {
+      <button key="overflow" className={toolbarOverflowOpen ? "icon-button active" : "icon-button"} title={t("toolbar.overflow")} aria-label={t("toolbar.overflow")} onClick={() => {
         setEditorSettingsOpen(false);
         setTemplateRegistryOpen(false);
         setToolbarOverflowOpen(!toolbarOverflowOpen);
@@ -2667,13 +2813,13 @@ export function App(props: AppProps = {}): JSX.Element {
   ].filter(Boolean);
   const runToolbarItems = [
     mainToolbarActionVisible("run") ? (
-      <button key="run" className={isRuntimeRunning ? "icon-button toolbar-run-main warning" : "icon-button toolbar-run-main"} title={isRuntimeRunning ? t("toolbar.cancelRun") : t("toolbar.runGraph")} onClick={isRuntimeRunning ? requestCancelRun : requestRun}>
-        {isRuntimeRunning ? <Square size={16} /> : <Play size={18} />}
-        <span>{isRuntimeRunning ? t("toolbar.cancelRun") : t("toolbar.runGraph")}</span>
+      <button key="run" className={isRuntimeActive ? "icon-button toolbar-run-main warning" : "icon-button toolbar-run-main"} title={isRuntimeActive ? t("toolbar.cancelRun") : t("toolbar.runGraph")} aria-label={isRuntimeActive ? t("toolbar.cancelRun") : t("toolbar.runGraph")} onClick={isRuntimeActive ? requestCancelRun : requestRun}>
+        {isRuntimeActive ? <Square size={16} /> : <Play size={18} />}
+        <span>{isRuntimeActive ? t("toolbar.cancelRun") : t("toolbar.runGraph")}</span>
       </button>
     ) : null,
-    mainToolbarActionVisible("stepRun") ? <button key="stepRun" className="icon-button toolbar-run-step" title={isRuntimeRunning ? t("toolbar.stepRuntime") : t("toolbar.stepRun")} onClick={isRuntimeRunning ? requestRuntimeStep : requestStepRun}><StepForward size={16} /></button> : null,
-    isRuntimeRunning && mainToolbarActionVisible("stepRun") ? <button key="continueRuntime" className="icon-button toolbar-run-step" title={t("toolbar.continueRuntime")} onClick={requestRuntimeContinue}><Play size={16} /></button> : null
+    mainToolbarActionVisible("stepRun") ? <button key="stepRun" className="icon-button toolbar-run-step" title={isRuntimeActive ? t("toolbar.stepRuntime") : t("toolbar.stepRun")} aria-label={isRuntimeActive ? t("toolbar.stepRuntime") : t("toolbar.stepRun")} onClick={isRuntimeActive ? requestRuntimeStep : requestStepRun}><StepForward size={16} /></button> : null,
+    isRuntimeActive && mainToolbarActionVisible("stepRun") ? <button key="continueRuntime" className="icon-button toolbar-run-step" title={t("toolbar.continueRuntime")} aria-label={t("toolbar.continueRuntime")} onClick={requestRuntimeContinue}><Play size={16} /></button> : null
   ].filter(Boolean);
 
   return (
@@ -3005,7 +3151,7 @@ export function App(props: AppProps = {}): JSX.Element {
                 <GraphMinimap graph={graph} templates={graphTemplates} canvasSize={canvasSize} categoryAccents={categoryAccents} t={t} onCenter={centerViewportOnGraphPoint} />
               ) : null}
               <RunActionBar
-                running={isRuntimeRunning}
+                running={isRuntimeActive}
                 runtimeState={runtimeActionState}
                 placement={actionBarPlacement}
                 bottomPanelOpen={bottomPanelOpen}
@@ -3017,7 +3163,7 @@ export function App(props: AppProps = {}): JSX.Element {
                 t={t}
                 onRun={requestRun}
                 onCancel={requestCancelRun}
-                onStep={isRuntimeRunning ? requestRuntimeStep : requestStepRun}
+                onStep={isRuntimeActive ? requestRuntimeStep : requestStepRun}
                 onContinue={requestRuntimeContinue}
                 onToggleLogs={() => setBottomPanelOpen((current) => !current)}
               />
@@ -3167,6 +3313,8 @@ export function App(props: AppProps = {}): JSX.Element {
         className="splitter horizontal bottom"
         role="separator"
         aria-orientation="horizontal"
+        aria-label={t("runPanel.resizeTitle")}
+        title={t("runPanel.resizeTitle")}
         onPointerDown={(event) => startPanelResize("bottom", event)}
         onPointerMove={resizePanels}
         onPointerUp={stopPanelResize}
@@ -3287,6 +3435,9 @@ function BlueprintNode(props: {
   const height = renderedNodeHeight(template, node);
   const runtimeClassName = props.runtimeStatus ? ` runtime-${props.runtimeStatus}` : "";
   const className = `${props.selected ? "node selected" : "node"}${compact ? " routing-hub" : ""}${disabled ? " disabled" : ""}${runtimeClassName}`;
+  const runtimeFlow = props.runtimeStatus === "active" || props.runtimeStatus === "paused"
+    ? <RuntimeEdgeFlow />
+    : null;
   const nodeStyle = {
     left: node.position.x,
     top: node.position.y,
@@ -3324,6 +3475,7 @@ function BlueprintNode(props: {
           props.onNodeDragStart(event);
         }}
       >
+        {runtimeFlow}
         <RuntimeStatusBadge status={props.runtimeStatus} t={props.t} />
         {props.hasBreakpoint ? <span className="breakpoint-badge" title={props.t("node.breakpoint")} /> : null}
         <div className="hub-ports">
@@ -3373,6 +3525,7 @@ function BlueprintNode(props: {
         props.onNodeDragStart(event);
       }}
     >
+      {runtimeFlow}
       <RuntimeStatusBadge status={props.runtimeStatus} t={props.t} />
       {props.hasBreakpoint ? <span className="breakpoint-badge" title={props.t("node.breakpoint")} /> : null}
       <div className="node-header">
@@ -3393,6 +3546,17 @@ function BlueprintNode(props: {
         </div>
       </div>
     </div>
+  );
+}
+
+function RuntimeEdgeFlow(): JSX.Element {
+  return (
+    <span className="runtime-edge-flow" aria-hidden="true">
+      <span className="runtime-edge-flow-segment top" />
+      <span className="runtime-edge-flow-segment right" />
+      <span className="runtime-edge-flow-segment bottom" />
+      <span className="runtime-edge-flow-segment left" />
+    </span>
   );
 }
 
@@ -5112,13 +5276,64 @@ function Inspector(props: {
   );
 }
 
-function DiagnosticStrip(props: {
+function RunPanelSummary(props: {
   issues: ValidationIssue[];
-  focusedIssueKey?: string;
+  compileMessage: string;
+  refactorResult?: RefactorResultMessage;
+  runtimeOutput?: RuntimeHistoryEntry;
+  runtimeRunning: boolean;
+  runtimeHistory: RuntimeHistoryEntry[];
+  liveTraceCount: number;
+  activeRuntimeTraceIndex?: number;
+  runtimeDetailsOpenRequest: number;
+  t: Translator;
+  traceLabel: RuntimeTraceLabeler;
+  onRuntimeTraceStep(index: number): void;
+}): JSX.Element {
+  const status = props.runtimeRunning
+    ? props.t("runtime.running")
+    : props.runtimeOutput
+      ? `${runtimeOutputHeading(props.runtimeOutput, props.t)}: ${props.runtimeOutput.text || props.runtimeOutput.message}`
+      : props.refactorResult
+        ? props.refactorResult.message
+        : props.issues.length
+          ? props.issues.some((issue) => issue.severity === "error")
+            ? props.t("common.errors", { count: props.issues.filter((issue) => issue.severity === "error").length })
+            : props.t("common.warnings", { count: props.issues.length })
+          : props.compileMessage || props.t("common.ready");
+  const statusClassName = props.runtimeOutput && !props.runtimeOutput.ok
+    ? "runtime-error"
+    : props.runtimeOutput?.ok || props.refactorResult?.ok
+      ? "runtime-ok"
+      : props.issues.some((issue) => issue.severity === "error")
+        ? "runtime-error"
+        : props.issues.length
+          ? "warning"
+          : "";
+  return (
+    <div className="run-panel-summary-console" aria-live="polite">
+      <span className={["output-message", statusClassName].filter(Boolean).join(" ")} title={status}>
+        {status}
+      </span>
+      {props.runtimeRunning ? <span className="output-pill ok">{props.t("runConsole.liveTraces", { count: props.liveTraceCount })}</span> : null}
+      {props.runtimeOutput ? (
+        <>
+          {!props.runtimeOutput.ok ? <RuntimeErrorSummary entry={props.runtimeOutput} t={props.t} traceLabel={props.traceLabel} onStep={props.onRuntimeTraceStep} /> : null}
+          <RuntimeTraceStepper entry={props.runtimeOutput} activeIndex={props.activeRuntimeTraceIndex} t={props.t} traceLabel={props.traceLabel} onStep={props.onRuntimeTraceStep} />
+          <RuntimeTraceDetails entry={props.runtimeOutput} compareEntry={previousRuntimeHistoryEntry(props.runtimeHistory, props.runtimeOutput.id)} activeIndex={props.activeRuntimeTraceIndex} openRequest={props.runtimeDetailsOpenRequest} t={props.t} traceLabel={props.traceLabel} onStep={props.onRuntimeTraceStep} />
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function RunConsole(props: {
+  issues: ValidationIssue[];
   compileMessage: string;
   refactorResult?: RefactorResultMessage;
   runtimeOutput?: RuntimeHistoryEntry;
   runtimeHistory: RuntimeHistoryEntry[];
+  runtimeLiveRun?: RuntimeLiveRun;
   activeRuntimeTraceIndex?: number;
   t: Translator;
   traceLabel: RuntimeTraceLabeler;
@@ -5129,92 +5344,236 @@ function DiagnosticStrip(props: {
   onRuntimeHistoryDelete(entry: RuntimeHistoryEntry): void;
   onRuntimeHistoryClear(): void;
   onRuntimeTraceStep(index: number): void;
+  onRuntimeLiveTraceStep(index: number): void;
 }): JSX.Element {
-  if (!props.issues.length) {
-    if (props.runtimeOutput) {
-      const compareEntry = previousRuntimeHistoryEntry(props.runtimeHistory, props.runtimeOutput.id);
-      return (
-        <>
-          <span className={props.runtimeOutput.ok ? "output-message runtime-ok" : "output-message runtime-error"} title={props.runtimeOutput.text}>
-            {runtimeOutputHeading(props.runtimeOutput, props.t)}: {props.runtimeOutput.text}
-          </span>
-          {!props.runtimeOutput.ok ? <RuntimeErrorSummary entry={props.runtimeOutput} t={props.t} traceLabel={props.traceLabel} onStep={props.onRuntimeTraceStep} /> : null}
-          <RuntimeTraceStepper entry={props.runtimeOutput} activeIndex={props.activeRuntimeTraceIndex} t={props.t} traceLabel={props.traceLabel} onStep={props.onRuntimeTraceStep} />
-          <RuntimeTraceDetails entry={props.runtimeOutput} compareEntry={compareEntry} activeIndex={props.activeRuntimeTraceIndex} t={props.t} traceLabel={props.traceLabel} onStep={props.onRuntimeTraceStep} />
-          <RuntimeHistoryBar
-            history={props.runtimeHistory}
-            activeId={props.runtimeOutput.id}
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const copyConsole = async () => {
+    try {
+      await writeTextToClipboard(formatRunConsoleCopyText(props));
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("failed");
+    }
+  };
+  const hasRows = Boolean(
+    props.runtimeLiveRun?.traces.length ||
+    props.runtimeHistory.length ||
+    props.issues.length ||
+    props.refactorResult ||
+    props.compileMessage
+  );
+  useEffect(() => {
+    const list = listRef.current;
+    if (list) {
+      list.scrollTop = 0;
+    }
+  }, [
+    props.runtimeLiveRun?.id,
+    props.runtimeLiveRun?.traces.length,
+    props.runtimeHistory.length,
+    props.runtimeOutput?.id
+  ]);
+  return (
+    <div className="run-console" aria-label={props.t("runConsole.label")}>
+      <div className="run-console-toolbar">
+        <span>{props.t("runConsole.entries", { count: runConsoleEntryCount(props) })}</span>
+        <button type="button" title={props.t("runConsole.copyAll")} aria-label={props.t("runConsole.copyAll")} onClick={() => void copyConsole()}>
+          <Copy size={12} />
+          <span>{copyStatus === "copied" ? props.t("common.copied") : copyStatus === "failed" ? props.t("common.copyFailed") : props.t("common.copy")}</span>
+        </button>
+        <button type="button" title={props.t("runtime.clearHistory")} aria-label={props.t("runtime.clearHistory")} onClick={props.onRuntimeHistoryClear}>
+          <Trash2 size={12} />
+          <span>{props.t("common.clear")}</span>
+        </button>
+      </div>
+      <div className="run-console-list" ref={listRef} role="log" aria-live="polite">
+        {props.runtimeLiveRun ? (
+          <RunConsoleLiveRun
+            liveRun={props.runtimeLiveRun}
             t={props.t}
+            traceLabel={props.traceLabel}
+            onTraceStep={props.onRuntimeLiveTraceStep}
+          />
+        ) : null}
+        {props.runtimeHistory.map((entry) => (
+          <RunConsoleHistoryEntry
+            key={entry.id}
+            index={props.runtimeHistory.findIndex((candidate) => candidate.id === entry.id)}
+            entry={entry}
+            active={entry.id === props.runtimeOutput?.id}
+            activeTraceIndex={entry.id === props.runtimeOutput?.id ? props.activeRuntimeTraceIndex : undefined}
+            t={props.t}
+            traceLabel={props.traceLabel}
             onSelect={props.onRuntimeHistorySelect}
             onRename={props.onRuntimeHistoryRename}
             onPin={props.onRuntimeHistoryPin}
             onDelete={props.onRuntimeHistoryDelete}
-            onClear={props.onRuntimeHistoryClear}
+            onTraceStep={props.onRuntimeTraceStep}
           />
-        </>
-      );
-    }
-    if (props.refactorResult) {
-      return (
-        <span className={props.refactorResult.ok ? "output-message refactor-ok" : "output-message refactor-error"}>
-          {props.refactorResult.message}
-        </span>
-      );
-    }
-    return <span className="output-message">{props.compileMessage || props.t("common.ready")}</span>;
-  }
-
-  return (
-    <span className={props.issues.some((issue) => issue.severity === "error") ? "output-message runtime-error" : "output-message warning"}>
-      {props.issues.some((issue) => issue.severity === "error")
-        ? props.t("common.errors", { count: props.issues.filter((issue) => issue.severity === "error").length })
-        : props.t("common.warnings", { count: props.issues.length })}
-    </span>
+        ))}
+        {props.issues.map((issue) => (
+          <RunConsoleIssueRow key={issueKey(issue)} issue={issue} t={props.t} onIssueFocus={props.onIssueFocus} />
+        ))}
+        {props.refactorResult ? <RunConsoleMessageRow level={props.refactorResult.ok ? "success" : "error"} timestamp={Date.now()} message={props.refactorResult.message} /> : null}
+        {props.compileMessage ? <RunConsoleMessageRow level="info" timestamp={Date.now()} message={props.compileMessage} /> : null}
+        {!hasRows ? <div className="run-console-empty">{props.t("common.ready")}</div> : null}
+      </div>
+    </div>
   );
 }
 
-function RunLogIssueList(props: {
-  issues: ValidationIssue[];
-  t: Translator;
-  onIssueFocus(issue: ValidationIssue): void;
-}): JSX.Element {
-  const [copiedKey, setCopiedKey] = useState<string | undefined>();
-  const [failedKey, setFailedKey] = useState<string | undefined>();
-  const copyIssue = async (issue: ValidationIssue) => {
-    const key = issueKey(issue);
+function RunConsoleIssueRow(props: { issue: ValidationIssue; t: Translator; onIssueFocus(issue: ValidationIssue): void }): JSX.Element {
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const location = diagnosticLocationText(props.issue);
+  const copyTitle = copyStatus === "copied"
+    ? props.t("runPanel.copyLogCopied")
+    : copyStatus === "failed"
+      ? props.t("runPanel.copyLogFailed")
+      : props.t("runPanel.copyLog");
+  const copyIssue = async () => {
     try {
-      await writeTextToClipboard(formatDiagnosticCopyText(issue));
-      setCopiedKey(key);
-      setFailedKey(undefined);
+      await writeTextToClipboard([
+        props.issue.severity,
+        props.issue.message,
+        location
+      ].filter(Boolean).join("\n"));
+      setCopyStatus("copied");
     } catch {
-      setCopiedKey(undefined);
-      setFailedKey(key);
+      setCopyStatus("failed");
     }
   };
-
   return (
-    <div className="run-log-list">
-      {props.issues.map((issue) => {
-        const key = issueKey(issue);
-        const location = diagnosticLocationText(issue);
-        const copyTitle = failedKey === key
-          ? props.t("runPanel.copyLogFailed")
-          : copiedKey === key
-            ? props.t("runPanel.copyLogCopied")
-            : props.t("runPanel.copyLog");
-        return (
-          <div key={key} className={`run-log-issue ${issue.severity}`}>
-            <button type="button" className="run-log-issue-focus" onClick={() => props.onIssueFocus(issue)}>
-              <strong>{issue.severity}</strong>
-              <span>{issue.message}</span>
-              {location ? <small>{location}</small> : null}
-            </button>
-            <button type="button" className="run-log-copy" title={copyTitle} aria-label={copyTitle} onClick={() => copyIssue(issue)}>
-              <Copy size={13} />
-            </button>
-          </div>
-        );
-      })}
+    <div className={`run-console-row ${props.issue.severity}`}>
+      <span className="run-console-time">{formatConsoleTimestamp(Date.now())}</span>
+      <button type="button" className="run-console-main" onClick={() => props.onIssueFocus(props.issue)}>
+        <strong>{props.issue.severity}</strong>
+        <span>{props.issue.message}</span>
+        {location ? <small>{location}</small> : null}
+      </button>
+      <button type="button" className="run-console-copy-row" title={copyTitle} aria-label={copyTitle} onClick={() => void copyIssue()}>
+        <Copy size={12} />
+      </button>
+    </div>
+  );
+}
+
+function RunConsoleMessageRow(props: { level: "info" | "success" | "error"; timestamp: number; message: string }): JSX.Element {
+  return (
+    <div className={`run-console-row ${props.level}`}>
+      <span className="run-console-time">{formatConsoleTimestamp(props.timestamp)}</span>
+      <span className="run-console-main">
+        <strong>{props.level}</strong>
+        <span>{props.message}</span>
+      </span>
+    </div>
+  );
+}
+
+function RunConsoleLiveRun(props: { liveRun: RuntimeLiveRun; t: Translator; traceLabel: RuntimeTraceLabeler; onTraceStep(index: number): void }): JSX.Element {
+  return (
+    <div className="run-console-run live">
+      <div className="run-console-run-head">
+        <span className="run-console-time">{formatConsoleTimestamp(props.liveRun.startedAt)}</span>
+        <strong>{props.t("runtime.running")}</strong>
+        <small>{props.t("runConsole.liveTraces", { count: props.liveRun.traces.length })}</small>
+      </div>
+      {props.liveRun.traces.map((trace, index) => (
+        <RunConsoleTraceRow
+          key={`${trace.graphId}:${trace.nodeId}:${trace.status}:${trace.timestamp ?? index}:${index}`}
+          trace={trace}
+          index={index}
+          baseTimestamp={props.liveRun.startedAt}
+          traceLabel={props.traceLabel}
+          onClick={() => props.onTraceStep(index)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function RunConsoleHistoryEntry(props: {
+  entry: RuntimeHistoryEntry;
+  index: number;
+  active: boolean;
+  activeTraceIndex?: number;
+  t: Translator;
+  traceLabel: RuntimeTraceLabeler;
+  onSelect(entry: RuntimeHistoryEntry): void;
+  onRename(entry: RuntimeHistoryEntry): void;
+  onPin(entry: RuntimeHistoryEntry): void;
+  onDelete(entry: RuntimeHistoryEntry): void;
+  onTraceStep(index: number): void;
+}): JSX.Element {
+  const outputLines = props.entry.text.split(/\r?\n/).filter(Boolean);
+  return (
+    <div className={props.active ? "run-console-run active" : "run-console-run"}>
+      <div className={props.entry.ok ? "run-console-run-head ok" : "run-console-run-head error"}>
+        <span className="run-console-time">{formatConsoleTimestamp(props.entry.createdAt)}</span>
+        <button type="button" className="run-console-run-select" title={props.entry.text} onClick={() => props.onSelect(props.entry)}>
+          <strong>{props.entry.label || runtimeOutputHeading(props.entry, props.t)}</strong>
+          <small>{props.entry.durationMs}ms · {props.entry.traces.length} {props.t("runConsole.traces")}</small>
+        </button>
+        <span className="run-console-actions">
+          <button type="button" title={props.t("runtime.renameRun", { index: props.index + 1 })} aria-label={props.t("runtime.renameRun", { index: props.index + 1 })} onClick={() => props.onRename(props.entry)}>
+            <Pencil size={11} />
+          </button>
+          <button type="button" className={props.entry.pinned ? "active" : ""} title={props.entry.pinned ? props.t("runtime.unpinRun", { index: props.index + 1 }) : props.t("runtime.pinRun", { index: props.index + 1 })} aria-label={props.entry.pinned ? props.t("runtime.unpinRun", { index: props.index + 1 }) : props.t("runtime.pinRun", { index: props.index + 1 })} onClick={() => props.onPin(props.entry)}>
+            <Pin size={11} />
+          </button>
+          <button type="button" title={props.t("runtime.deleteRun", { index: props.index + 1 })} aria-label={props.t("runtime.deleteRun", { index: props.index + 1 })} onClick={() => props.onDelete(props.entry)}>
+            <Trash2 size={11} />
+          </button>
+        </span>
+      </div>
+      {outputLines.map((line, index) => (
+        <RunConsoleMessageRow key={`${props.entry.id}:line:${index}`} level={props.entry.ok ? "success" : "error"} timestamp={props.entry.createdAt} message={line} />
+      ))}
+      {props.entry.traces.map((trace, index) => (
+        <RunConsoleTraceRow
+          key={`${props.entry.id}:${trace.graphId}:${trace.nodeId}:${trace.status}:${trace.timestamp ?? index}:${index}`}
+          trace={trace}
+          index={index}
+          baseTimestamp={props.entry.createdAt}
+          active={props.active && props.activeTraceIndex === index}
+          traceLabel={props.traceLabel}
+          onClick={() => props.onTraceStep(index)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function RunConsoleTraceRow(props: {
+  trace: RuntimeTraceEvent;
+  index: number;
+  baseTimestamp: number;
+  active?: boolean;
+  traceLabel: RuntimeTraceLabeler;
+  onClick?(): void;
+}): JSX.Element {
+  const label = runtimeTraceNodeLabel(props.trace, props.traceLabel);
+  const context = runtimeTraceContextText(props.trace);
+  const scope = runtimeTraceScopeText(props.trace);
+  const timestamp = runtimeTraceDisplayTimestamp(props.baseTimestamp, props.trace);
+  const content = (
+    <>
+      <strong>{props.trace.status}</strong>
+      <span>{label}</span>
+      {props.trace.message || context || scope ? <small>{[scope, props.trace.message, context].filter(Boolean).join(" · ")}</small> : null}
+    </>
+  );
+  return (
+    <div className={props.active ? `run-console-row trace ${props.trace.status} active` : `run-console-row trace ${props.trace.status}`}>
+      <span className="run-console-time">{formatConsoleTimestamp(timestamp)}</span>
+      {props.onClick ? (
+        <button type="button" className="run-console-main" onClick={props.onClick}>
+          {content}
+        </button>
+      ) : (
+        <span className="run-console-main">{content}</span>
+      )}
+      <span className="run-console-index">#{props.index + 1}</span>
     </div>
   );
 }
@@ -5283,6 +5642,7 @@ function RuntimeTraceDetails(props: {
   entry: RuntimeHistoryEntry;
   compareEntry?: RuntimeHistoryEntry;
   activeIndex?: number;
+  openRequest: number;
   t: Translator;
   traceLabel: RuntimeTraceLabeler;
   onStep(index: number): void;
@@ -5310,6 +5670,12 @@ function RuntimeTraceDetails(props: {
     setComparisonCopyStatus("idle");
     setComparisonItemCopyStatus({ status: "idle" });
   }, [props.entry.id]);
+
+  useEffect(() => {
+    if (props.openRequest > 0) {
+      setOpen(true);
+    }
+  }, [props.openRequest]);
 
   if (!props.entry.traces.length) {
     return null;
@@ -5591,81 +5957,6 @@ function RuntimeTraceDetails(props: {
           {filteredTraces.length > visibleTraces.length ? (
             <div className="runtime-details-more">{props.t("runtime.showingTraces", { visible: visibleTraces.length, total: filteredTraces.length })}</div>
           ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function RuntimeHistoryBar(props: {
-  history: RuntimeHistoryEntry[];
-  activeId?: string;
-  t: Translator;
-  onSelect(entry: RuntimeHistoryEntry): void;
-  onRename(entry: RuntimeHistoryEntry): void;
-  onPin(entry: RuntimeHistoryEntry): void;
-  onDelete(entry: RuntimeHistoryEntry): void;
-  onClear(): void;
-}): JSX.Element | null {
-  const [open, setOpen] = useState(false);
-  if (!props.history.length) {
-    return null;
-  }
-  return (
-    <div className="run-history">
-      <button
-        className={open ? "run-history-toggle active" : "run-history-toggle"}
-        type="button"
-        title={open ? props.t("runtime.closeHistory") : props.t("runtime.openHistory")}
-        aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
-      >
-        <span>{props.t("runtime.history")}</span>
-        <small>{props.history.length}</small>
-      </button>
-      {open ? (
-        <div
-          className="run-history-popover"
-          role="dialog"
-          aria-label={props.t("runtime.history")}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              setOpen(false);
-            }
-          }}
-        >
-          <div className="run-history-popover-head">
-            <strong>{props.t("runtime.runHistory")}</strong>
-            <button className="run-history-clear" title={props.t("runtime.clearHistory")} onClick={props.onClear}>
-              <Trash2 size={11} />
-              <span>{props.t("common.clear")}</span>
-            </button>
-          </div>
-          <div className="run-history-list">
-            {props.history.map((entry, index) => (
-              <div key={entry.id} className={entry.id === props.activeId ? "run-history-entry active" : "run-history-entry"}>
-                <button
-                  className={entry.id === props.activeId ? `run-history-item ${entry.ok ? "ok" : "error"} active` : `run-history-item ${entry.ok ? "ok" : "error"}`}
-                  title={entry.label ? `${entry.label}: ${entry.text}` : entry.text}
-                  onClick={() => props.onSelect(entry)}
-                >
-                  <span>{entry.label || props.t("runtime.runIndex", { index: index + 1 })}</span>
-                  <small>{entry.durationMs}ms</small>
-                </button>
-                <span className="run-history-actions">
-                  <button className="run-history-rename" title={props.t("runtime.renameRun", { index: index + 1 })} onClick={() => props.onRename(entry)}>
-                    <Pencil size={11} />
-                  </button>
-                  <button className={entry.pinned ? "run-history-pin active" : "run-history-pin"} title={entry.pinned ? props.t("runtime.unpinRun", { index: index + 1 }) : props.t("runtime.pinRun", { index: index + 1 })} onClick={() => props.onPin(entry)}>
-                    <Pin size={11} />
-                  </button>
-                  <button className="run-history-delete" title={props.t("runtime.deleteRun", { index: index + 1 })} onClick={() => props.onDelete(entry)}>
-                    <Trash2 size={11} />
-                  </button>
-                </span>
-              </div>
-            ))}
-          </div>
         </div>
       ) : null}
     </div>
@@ -6085,12 +6376,71 @@ function diagnosticLocationText(issue: ValidationIssue): string {
   ].filter(Boolean).join(" · ");
 }
 
-function formatDiagnosticCopyText(issue: ValidationIssue): string {
-  return [
-    issue.severity,
-    issue.message,
-    diagnosticLocationText(issue)
-  ].filter(Boolean).join("\n");
+function formatConsoleTimestamp(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function runConsoleEntryCount(props: {
+  issues: ValidationIssue[];
+  compileMessage: string;
+  refactorResult?: RefactorResultMessage;
+  runtimeHistory: RuntimeHistoryEntry[];
+  runtimeLiveRun?: RuntimeLiveRun;
+}): number {
+  return props.issues.length +
+    (props.compileMessage ? 1 : 0) +
+    (props.refactorResult ? 1 : 0) +
+    (props.runtimeLiveRun?.traces.length ?? 0) +
+    props.runtimeHistory.reduce((count, entry) => count + 1 + entry.traces.length + entry.text.split(/\r?\n/).filter(Boolean).length, 0);
+}
+
+function formatRunConsoleCopyText(props: {
+  issues: ValidationIssue[];
+  compileMessage: string;
+  refactorResult?: RefactorResultMessage;
+  runtimeHistory: RuntimeHistoryEntry[];
+  runtimeLiveRun?: RuntimeLiveRun;
+  traceLabel: RuntimeTraceLabeler;
+}): string {
+  const lines: string[] = [];
+  for (const issue of props.issues) {
+    lines.push(`[${formatConsoleTimestamp(Date.now())}] ${issue.severity}: ${issue.message}${diagnosticLocationText(issue) ? ` (${diagnosticLocationText(issue)})` : ""}`);
+  }
+  if (props.refactorResult) {
+    lines.push(`[${formatConsoleTimestamp(Date.now())}] ${props.refactorResult.ok ? "success" : "error"}: ${props.refactorResult.message}`);
+  }
+  if (props.compileMessage) {
+    lines.push(`[${formatConsoleTimestamp(Date.now())}] info: ${props.compileMessage}`);
+  }
+  if (props.runtimeLiveRun) {
+    lines.push(`[${formatConsoleTimestamp(props.runtimeLiveRun.startedAt)}] running: ${props.runtimeLiveRun.id}`);
+    for (const trace of props.runtimeLiveRun.traces) {
+      lines.push(formatRunConsoleTraceCopyLine(trace, props.runtimeLiveRun.startedAt, props.traceLabel));
+    }
+  }
+  for (const entry of props.runtimeHistory) {
+    lines.push(`[${formatConsoleTimestamp(entry.createdAt)}] ${entry.ok ? "run" : "run failed"}: ${entry.label || entry.message} (${entry.durationMs}ms)`);
+    for (const line of entry.text.split(/\r?\n/).filter(Boolean)) {
+      lines.push(`[${formatConsoleTimestamp(entry.createdAt)}] ${entry.ok ? "stdout" : "stderr"}: ${line}`);
+    }
+    for (const trace of entry.traces) {
+      lines.push(formatRunConsoleTraceCopyLine(trace, entry.createdAt, props.traceLabel));
+    }
+  }
+  return lines.join("\n");
+}
+
+function formatRunConsoleTraceCopyLine(trace: RuntimeTraceEvent, baseTimestamp: number, traceLabel: RuntimeTraceLabeler): string {
+  const timestamp = runtimeTraceDisplayTimestamp(baseTimestamp, trace);
+  const details = [runtimeTraceScopeText(trace), trace.message, runtimeTraceContextText(trace)].filter(Boolean).join(" · ");
+  return `[${formatConsoleTimestamp(timestamp)}] ${trace.status}: ${runtimeTraceNodeLabel(trace, traceLabel)}${details ? ` - ${details}` : ""}`;
+}
+
+function runtimeTraceDisplayTimestamp(baseTimestamp: number, trace: RuntimeTraceEvent): number {
+  if (typeof trace.timestamp !== "number") {
+    return baseTimestamp;
+  }
+  return trace.timestamp > 946684800000 ? trace.timestamp : baseTimestamp + trace.timestamp;
 }
 
 function formatRuntimeText(stdout: string, stderr: string, fallback: string): string {
@@ -6129,6 +6479,13 @@ function runtimeTraceContextText(trace: RuntimeTraceEvent): string {
     return "";
   }
   return entries.map(([key, value]) => `${key}: ${formatRuntimeTraceValue(value)}`).join(", ");
+}
+
+function runtimeTraceScopeText(trace: RuntimeTraceEvent): string {
+  const projectedSubgraph = typeof trace.context?.subgraphId === "string"
+    ? `inside ${trace.context.subgraphId}${typeof trace.context.subgraphNodeId === "string" ? `/${trace.context.subgraphNodeId}` : ""}`
+    : "";
+  return projectedSubgraph || `graph ${trace.graphId}`;
 }
 
 function runtimeTraceContextSignature(context: Record<string, unknown> | undefined): string {
@@ -6417,6 +6774,7 @@ function runtimeTraceMatchesQuery(trace: RuntimeTraceEvent, query: string, trace
     runtimeTraceNodeLabel(trace, traceLabel),
     trace.status,
     trace.message,
+    runtimeTraceScopeText(trace),
     runtimeTraceContextText(trace)
   ], query);
 }
@@ -6462,6 +6820,32 @@ function runtimeTraceTimeText(trace: RuntimeTraceEvent, firstTimestamp: number |
   return `+${Math.max(0, trace.timestamp - firstTimestamp)}ms`;
 }
 
+function effectiveTemplatesForRuntime(graph: BlueprintGraph | undefined, templates: BlueprintNodeTemplate[]): BlueprintNodeTemplate[] {
+  return mergeTemplatesById([...templates, ...(graph?.localTemplates ?? [])]);
+}
+
+function runtimeStatusForGraph(
+  graph: BlueprintGraph | undefined,
+  templates: BlueprintNodeTemplate[],
+  traces: RuntimeTraceEvent[],
+  activeTrace?: RuntimeTraceEvent
+): Map<string, RuntimeTraceEvent> {
+  const statuses = runtimeStatusByNodeId(graph?.id, traces, activeTrace);
+  if (!graph) {
+    return statuses;
+  }
+  for (const trace of traces) {
+    projectSubgraphRuntimeTrace(graph, templates, statuses, trace);
+  }
+  if (activeTrace) {
+    projectSubgraphRuntimeTrace(graph, templates, statuses, {
+      ...activeTrace,
+      status: activeTrace.status === "visited" ? "active" : activeTrace.status
+    });
+  }
+  return statuses;
+}
+
 function runtimeStatusByNodeId(
   graphId: string | undefined,
   traces: RuntimeTraceEvent[],
@@ -6483,14 +6867,102 @@ function runtimeStatusByNodeId(
   return statuses;
 }
 
+function applyRuntimeTraceStatusForGraph(
+  graph: BlueprintGraph | undefined,
+  templates: BlueprintNodeTemplate[],
+  current: Map<string, RuntimeTraceEvent>,
+  trace: RuntimeTraceEvent
+): Map<string, RuntimeTraceEvent> {
+  if (!graph || trace.graphId === graph.id) {
+    return applyRuntimeTraceStatus(graph?.id, current, trace);
+  }
+  const statuses = new Map(current);
+  projectSubgraphRuntimeTrace(graph, templates, statuses, trace);
+  return statuses;
+}
+
+function projectSubgraphRuntimeTrace(
+  graph: BlueprintGraph,
+  templates: BlueprintNodeTemplate[],
+  statuses: Map<string, RuntimeTraceEvent>,
+  trace: RuntimeTraceEvent
+): void {
+  if (trace.graphId === graph.id) {
+    return;
+  }
+  const caller = graph.nodes.find((node) => {
+    const template = getEffectiveTemplateForNode(graph, templates, node);
+    return templateCallsTraceGraph(template, trace.graphId);
+  });
+  if (!caller) {
+    return;
+  }
+  if (trace.status === "active") {
+    for (const [nodeId, status] of statuses.entries()) {
+      if (status.status === "active") {
+        statuses.set(nodeId, { ...status, status: "visited" });
+      }
+    }
+  }
+  const callerTemplate = getEffectiveTemplateForNode(graph, templates, caller);
+  statuses.set(caller.id, {
+    ...trace,
+    graphId: graph.id,
+    nodeId: caller.id,
+    nodeName: callerTemplate?.name ?? caller.id,
+    context: {
+      ...(trace.context ?? {}),
+      subgraphId: trace.graphId,
+      subgraphNodeId: trace.nodeId,
+      subgraphNodeName: trace.nodeName
+    }
+  });
+}
+
+function templateCallsTraceGraph(template: BlueprintNodeTemplate | undefined, graphId: string): boolean {
+  if (!template || (template.bodyKind !== "blueprintGraph" && template.bodyKind !== "macroExpansion")) {
+    return false;
+  }
+  const templateGraphId = template.id.replace(/^(graph|macro)\./, "");
+  if (templateGraphId === graphId) {
+    return true;
+  }
+  const source = typeof template.metadata?.source === "string" ? template.metadata.source : template.bodyRef;
+  return normalizePathFragment(source).endsWith(`/${graphId}.bpgraph`);
+}
+
+function normalizePathFragment(value: string | undefined): string {
+  return `/${(value ?? "").replace(/\\/g, "/").replace(/^\/+/, "")}`;
+}
+
+function runtimeTraceTargetNodeId(
+  graph: BlueprintGraph | undefined,
+  templates: BlueprintNodeTemplate[],
+  trace: RuntimeTraceEvent
+): string | undefined {
+  if (!graph) {
+    return undefined;
+  }
+  if (trace.graphId === graph.id && graph.nodes.some((node) => node.id === trace.nodeId)) {
+    return trace.nodeId;
+  }
+  return graph.nodes.find((node) => {
+    const template = getEffectiveTemplateForNode(graph, templates, node);
+    return templateCallsTraceGraph(template, trace.graphId);
+  })?.id;
+}
+
 function runtimeSurfaceState(
   running: boolean,
   queuedRuns: number,
   nodeStatus: Map<string, RuntimeTraceEvent>,
-  output: RuntimeHistoryEntry | undefined
+  output: RuntimeHistoryEntry | undefined,
+  liveTraces: RuntimeTraceEvent[] = []
 ): RunActionBarRuntimeState {
   if (running) {
-    const statuses = [...nodeStatus.values()].map((trace) => trace.status);
+    const statuses = liveTraces.length
+      ? liveTraces.map((trace) => trace.status)
+      : [...nodeStatus.values()].map((trace) => trace.status);
     if (!statuses.length) {
       return "pending";
     }

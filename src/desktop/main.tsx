@@ -11,6 +11,7 @@ import {
   BlueprintGraph,
   BlueprintGraphSearchEntry,
   BlueprintBreakpointSpec,
+  BlueprintNodeInstance,
   BlueprintNodeTemplate,
   BlueprintProject,
   RuntimeTraceEvent,
@@ -52,6 +53,7 @@ let templateLoadRequestId = 0;
 let solutionGraphIndexRequestId = 0;
 let runtimeRunSequence = 0;
 let activeRuntimeRun: PendingRuntimeRun | undefined;
+let activePreviewRuntimeRun: PreviewRuntimeRun | undefined;
 const pendingRuntimeRuns: PendingRuntimeRun[] = [];
 const desktopRecentSolutionsKey = "blueprint.desktop.recentSolutions";
 let updateSelectedGraphPathFromEditor: ((path: string) => void) | undefined;
@@ -72,6 +74,20 @@ interface PendingRuntimeRun {
   graphPath?: string;
   breakpoints?: BlueprintBreakpointSpec[];
   stepMode?: boolean;
+}
+
+interface PreviewRuntimeRun {
+  id: string;
+  graph: BlueprintGraph;
+  nodes: BlueprintNodeInstance[];
+  traces: RuntimeTraceEvent[];
+  index: number;
+  stepMode: boolean;
+  continueRuntime: boolean;
+  paused: boolean;
+  canceled: boolean;
+  startedAt: number;
+  timer?: number;
 }
 
 interface BlueprintRuntimeTracePayload {
@@ -331,6 +347,10 @@ async function handleEditorMessage(message: EditorToHostMessage): Promise<void> 
   }
 
   if (message.type === "requestRuntimeStep") {
+    if (!hasTauriWindowRuntime()) {
+      stepPreviewRuntimeRun(activeRuntimeRun?.id);
+      return;
+    }
     await tauriBlueprintHost.runtimeStep(activeRuntimeRun?.id).catch((error: unknown) => {
       console.error(error);
     });
@@ -338,6 +358,10 @@ async function handleEditorMessage(message: EditorToHostMessage): Promise<void> 
   }
 
   if (message.type === "requestRuntimeContinue") {
+    if (!hasTauriWindowRuntime()) {
+      continuePreviewRuntimeRun(activeRuntimeRun?.id);
+      return;
+    }
     await tauriBlueprintHost.runtimeContinue(activeRuntimeRun?.id).catch((error: unknown) => {
       console.error(error);
     });
@@ -346,6 +370,13 @@ async function handleEditorMessage(message: EditorToHostMessage): Promise<void> 
 
   if (message.type === "requestCancelRun") {
     pendingRuntimeRuns.length = 0;
+    if (!hasTauriWindowRuntime()) {
+      cancelPreviewRuntimeRun(activeRuntimeRun?.id);
+      if (!activeRuntimeRun) {
+        publishRuntimeQueueStatus();
+      }
+      return;
+    }
     await tauriBlueprintHost.cancelRuntimeRun(activeRuntimeRun?.id).catch((error: unknown) => {
       console.error(error);
     });
@@ -380,10 +411,15 @@ async function drainRuntimeRunQueue(): Promise<void> {
 
   activeRuntimeRun = nextRun;
   publishRuntimeQueueStatus();
+  if (!hasTauriWindowRuntime()) {
+    startPreviewRuntimeRun(nextRun);
+    return;
+  }
   await tauriBlueprintHost.runGraph(nextRun.graph, nextRun.graphPath, {
     runId: nextRun.id,
     breakpoints: nextRun.breakpoints,
-    stepMode: nextRun.stepMode
+    stepMode: nextRun.stepMode,
+    streamEvents: true
   }).catch((error: unknown) => {
     completeRuntimeRun({
       runId: nextRun.id,
@@ -397,8 +433,197 @@ async function drainRuntimeRunQueue(): Promise<void> {
   });
 }
 
+function startPreviewRuntimeRun(run: PendingRuntimeRun): void {
+  activePreviewRuntimeRun = {
+    id: run.id,
+    graph: run.graph,
+    nodes: previewRuntimeNodeOrder(run.graph),
+    traces: [],
+    index: 0,
+    stepMode: run.stepMode === true,
+    continueRuntime: false,
+    paused: false,
+    canceled: false,
+    startedAt: Date.now()
+  };
+  schedulePreviewRuntimeRun(activePreviewRuntimeRun, 120);
+}
+
+function schedulePreviewRuntimeRun(session: PreviewRuntimeRun, delayMs: number): void {
+  window.clearTimeout(session.timer);
+  session.timer = window.setTimeout(() => advancePreviewRuntimeRun(session.id), delayMs);
+}
+
+function advancePreviewRuntimeRun(runId: string): void {
+  const session = activePreviewRuntimeRun;
+  if (!session || session.id !== runId || session.canceled || session.paused) {
+    return;
+  }
+  const node = session.nodes[session.index];
+  if (!node) {
+    completePreviewRuntimeRun(session, {
+      ok: true,
+      message: "Preview run completed.",
+      stdout: "Preview run completed.\n",
+      stderr: ""
+    });
+    return;
+  }
+
+  const template = activeTemplates.find((candidate) => candidate.id === node.templateId);
+  const baseTrace = {
+    graphId: session.graph.id,
+    nodeId: node.id,
+    nodeName: template?.name ?? node.id,
+    timestamp: Date.now() - session.startedAt
+  };
+  const activeTrace: RuntimeTraceEvent = { ...baseTrace, status: "active" };
+  emitPreviewRuntimeTrace(session, activeTrace);
+
+  if (previewBreakpointHit(node.id)) {
+    const breakpointTrace: RuntimeTraceEvent = { ...baseTrace, status: "breakpoint", message: `Preview breakpoint hit at ${node.id}`, timestamp: Date.now() - session.startedAt };
+    emitPreviewRuntimeTrace(session, breakpointTrace);
+    completePreviewRuntimeRun(session, {
+      ok: false,
+      message: breakpointTrace.message ?? "Preview breakpoint hit.",
+      stdout: "",
+      stderr: breakpointTrace.message ?? "Preview breakpoint hit."
+    });
+    return;
+  }
+
+  if (session.stepMode && !session.continueRuntime) {
+    const pausedTrace: RuntimeTraceEvent = { ...baseTrace, status: "paused", timestamp: Date.now() - session.startedAt };
+    emitPreviewRuntimeTrace(session, pausedTrace);
+    session.paused = true;
+    return;
+  }
+
+  schedulePreviewRuntimeVisit(session, node.id, baseTrace);
+}
+
+function schedulePreviewRuntimeVisit(session: PreviewRuntimeRun, nodeId: string, baseTrace: Omit<RuntimeTraceEvent, "status">): void {
+  window.clearTimeout(session.timer);
+  session.timer = window.setTimeout(() => {
+    if (activePreviewRuntimeRun?.id !== session.id || session.canceled || session.paused) {
+      return;
+    }
+    emitPreviewRuntimeTrace(session, { ...baseTrace, status: "visited", timestamp: Date.now() - session.startedAt });
+    if (session.nodes[session.index]?.id === nodeId) {
+      session.index += 1;
+    }
+    schedulePreviewRuntimeRun(session, 180);
+  }, 260);
+}
+
+function stepPreviewRuntimeRun(runId: string | undefined): void {
+  const session = activePreviewRuntimeRun;
+  if (!session || (runId && session.id !== runId)) {
+    return;
+  }
+  if (session.paused) {
+    session.paused = false;
+    const node = session.nodes[session.index];
+    const template = node ? activeTemplates.find((candidate) => candidate.id === node.templateId) : undefined;
+    if (node) {
+      emitPreviewRuntimeTrace(session, {
+        graphId: session.graph.id,
+        nodeId: node.id,
+        nodeName: template?.name ?? node.id,
+        status: "visited",
+        timestamp: Date.now() - session.startedAt
+      });
+      session.index += 1;
+    }
+  }
+  schedulePreviewRuntimeRun(session, 120);
+}
+
+function continuePreviewRuntimeRun(runId: string | undefined): void {
+  const session = activePreviewRuntimeRun;
+  if (!session || (runId && session.id !== runId)) {
+    return;
+  }
+  session.continueRuntime = true;
+  stepPreviewRuntimeRun(runId);
+}
+
+function cancelPreviewRuntimeRun(runId: string | undefined): void {
+  const session = activePreviewRuntimeRun;
+  if (!session || (runId && session.id !== runId)) {
+    activeRuntimeRun = undefined;
+    return;
+  }
+  session.canceled = true;
+  window.clearTimeout(session.timer);
+  completePreviewRuntimeRun(session, {
+    ok: false,
+    message: "Run canceled.",
+    stdout: "",
+    stderr: ""
+  });
+}
+
+function completePreviewRuntimeRun(session: PreviewRuntimeRun, result: { ok: boolean; message: string; stdout: string; stderr: string }): void {
+  if (activePreviewRuntimeRun?.id === session.id) {
+    activePreviewRuntimeRun = undefined;
+  }
+  completeRuntimeRun({
+    runId: session.id,
+    ok: result.ok,
+    message: result.message,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    durationMs: Date.now() - session.startedAt,
+    traces: session.traces
+  });
+}
+
+function emitPreviewRuntimeTrace(session: PreviewRuntimeRun, trace: RuntimeTraceEvent): void {
+  session.traces.push(trace);
+  sendToEditor({ type: "runtimeTrace", runId: session.id, trace });
+}
+
+function previewBreakpointHit(nodeId: string): boolean {
+  return (activeRuntimeRun?.breakpoints ?? []).some((breakpoint) => {
+    if (typeof breakpoint === "string") {
+      return breakpoint === nodeId;
+    }
+    return breakpoint.nodeId === nodeId && breakpoint.enabled !== false;
+  });
+}
+
+function previewRuntimeNodeOrder(graph: BlueprintGraph): BlueprintNodeInstance[] {
+  const executableNodes = graph.nodes.filter((node) => !previewNodeDisabled(node));
+  const executableNodeIds = new Set(executableNodes.map((node) => node.id));
+  const nodesById = new Map(executableNodes.map((node) => [node.id, node]));
+  const controlLinks = graph.links.filter((link) => link.flowKind !== "data" && executableNodeIds.has(link.fromNodeId) && executableNodeIds.has(link.toNodeId));
+  const linkedTargets = new Set(controlLinks.map((link) => link.toNodeId));
+  const entry = executableNodes.find((node) => !linkedTargets.has(node.id)) ?? executableNodes[0];
+  if (!entry) {
+    return [];
+  }
+  const ordered: BlueprintNodeInstance[] = [];
+  const visited = new Set<string>();
+  let current: BlueprintNodeInstance | undefined = entry;
+  while (current && !visited.has(current.id)) {
+    ordered.push(current);
+    visited.add(current.id);
+    const nextLink = controlLinks.find((link) => link.fromNodeId === current?.id);
+    current = nextLink ? nodesById.get(nextLink.toNodeId) : undefined;
+  }
+  return [
+    ...ordered,
+    ...executableNodes.filter((node) => !visited.has(node.id))
+  ];
+}
+
+function previewNodeDisabled(node: BlueprintNodeInstance): boolean {
+  return node.displayOverrides?.disabled === true;
+}
+
 function completeRuntimeRun(result: BlueprintRuntimeResultPayload): void {
-  if (activeRuntimeRun && result.runId && activeRuntimeRun.id !== result.runId) {
+  if (result.runId && (!activeRuntimeRun || activeRuntimeRun.id !== result.runId)) {
     return;
   }
   sendToEditor({ type: "runtimeResult", ...result });
@@ -1507,13 +1732,13 @@ function DesktopShell(): JSX.Element {
       {titleBar}
       <div className={shellClassName} style={desktopShellStyle}>
       <aside className="desktop-activity-bar left" aria-label={desktopT("desktop.activity.left")}>
-        <button type="button" className={leftDockOpen && leftDockTab === "tree" ? "active" : undefined} onClick={() => activateLeftDock("tree")} title={desktopT("desktop.activity.project")}>
+        <button type="button" className={leftDockOpen && leftDockTab === "tree" ? "active" : undefined} onClick={() => activateLeftDock("tree")} title={desktopT("desktop.activity.project")} aria-label={desktopT("desktop.activity.project")}>
           <PanelLeft size={17} />
         </button>
-        <button type="button" className={leftDockOpen && leftDockTab === "run" ? "active" : undefined} onClick={() => activateLeftDock("run")} title={desktopT("desktop.activity.run")}>
+        <button type="button" className={leftDockOpen && leftDockTab === "run" ? "active" : undefined} onClick={() => activateLeftDock("run")} title={desktopT("desktop.activity.run")} aria-label={desktopT("desktop.activity.run")}>
           <Play size={17} />
         </button>
-        <button type="button" className={leftDockOpen && leftDockTab === "source" ? "active" : undefined} onClick={() => activateLeftDock("source")} title={desktopT("desktop.activity.source")}>
+        <button type="button" className={leftDockOpen && leftDockTab === "source" ? "active" : undefined} onClick={() => activateLeftDock("source")} title={desktopT("desktop.activity.source")} aria-label={desktopT("desktop.activity.source")}>
           <GitBranch size={17} />
         </button>
       </aside>
@@ -1652,16 +1877,16 @@ function DesktopShell(): JSX.Element {
         />
       </aside>
       <aside className="desktop-activity-bar right" aria-label={desktopT("desktop.activity.right")}>
-        <button type="button" className={rightDockOpen && rightDockTab === "commands" ? "active" : undefined} onClick={() => activateRightDock("commands")} title={desktopT("desktop.activity.commands")}>
+        <button type="button" className={rightDockOpen && rightDockTab === "commands" ? "active" : undefined} onClick={() => activateRightDock("commands")} title={desktopT("desktop.activity.commands")} aria-label={desktopT("desktop.activity.commands")}>
           <Command size={17} />
         </button>
-        <button type="button" className={rightDockOpen && rightDockTab === "debug" ? "active" : undefined} onClick={() => activateRightDock("debug")} title={desktopT("desktop.activity.debug")}>
+        <button type="button" className={rightDockOpen && rightDockTab === "debug" ? "active" : undefined} onClick={() => activateRightDock("debug")} title={desktopT("desktop.activity.debug")} aria-label={desktopT("desktop.activity.debug")}>
           <Bug size={17} />
         </button>
-        <button type="button" className={rightDockOpen && rightDockTab === "settings" ? "active" : undefined} onClick={() => activateRightDock("settings")} title={desktopT("desktop.activity.settings")}>
+        <button type="button" className={rightDockOpen && rightDockTab === "settings" ? "active" : undefined} onClick={() => activateRightDock("settings")} title={desktopT("desktop.activity.settings")} aria-label={desktopT("desktop.activity.settings")}>
           <Settings size={17} />
         </button>
-        <button type="button" className={rightDockOpen && rightDockTab === "inspector" ? "active" : undefined} onClick={() => activateRightDock("inspector")} title={desktopT("desktop.activity.inspector")}>
+        <button type="button" className={rightDockOpen && rightDockTab === "inspector" ? "active" : undefined} onClick={() => activateRightDock("inspector")} title={desktopT("desktop.activity.inspector")} aria-label={desktopT("desktop.activity.inspector")}>
           <PanelRight size={17} />
         </button>
       </aside>
@@ -2076,6 +2301,7 @@ function DesktopTitleBar(props: {
   onRunGraph(): Promise<void>;
 }): JSX.Element {
   const [openMenu, setOpenMenu] = React.useState<"file" | "edit" | "view" | "run" | "help" | undefined>();
+  const workspaceContextLabel = props.solution?.name ?? desktopT("desktop.previewGraphOpen");
   const handleWindowError = React.useCallback((error: unknown) => {
     console.error(error);
   }, []);
@@ -2291,23 +2517,23 @@ function DesktopTitleBar(props: {
         </div>
       </nav>
       <div className="desktop-titlebar-context">
-        <span>{props.solution?.name ?? (props.mode === "hub" ? desktopT("desktop.hub.title") : desktopT("desktop.noSolutionSelected"))}</span>
+        <span>{props.mode === "hub" ? desktopT("desktop.hub.title") : workspaceContextLabel}</span>
       </div>
       <div className="desktop-titlebar-actions">
         {props.onRefreshSolution ? (
-          <button type="button" onClick={props.onRefreshSolution} disabled={props.busy} title={desktopT("desktop.refreshSolution")}>
+          <button type="button" onClick={props.onRefreshSolution} disabled={props.busy} title={desktopT("desktop.refreshSolution")} aria-label={desktopT("desktop.refreshSolution")}>
             <RefreshCw size={13} />
           </button>
         ) : null}
       </div>
       <div className="desktop-window-controls">
-        <button type="button" onClick={minimizeWindow} title={desktopT("desktop.window.minimize")}>
+        <button type="button" onClick={minimizeWindow} title={desktopT("desktop.window.minimize")} aria-label={desktopT("desktop.window.minimize")}>
           <Minus size={14} />
         </button>
-        <button type="button" onClick={maximizeWindow} title={desktopT("desktop.window.maximize")}>
+        <button type="button" onClick={maximizeWindow} title={desktopT("desktop.window.maximize")} aria-label={desktopT("desktop.window.maximize")}>
           <Maximize2 size={13} />
         </button>
-        <button type="button" className="close" onClick={closeWindow} title={desktopT("desktop.window.close")}>
+        <button type="button" className="close" onClick={closeWindow} title={desktopT("desktop.window.close")} aria-label={desktopT("desktop.window.close")}>
           <X size={14} />
         </button>
       </div>

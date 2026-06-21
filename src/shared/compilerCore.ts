@@ -390,7 +390,7 @@ function generateGraphSource(
     controlFlow: buildControlFlowPlan(graph)
   };
   const imports = [
-    "import { BlueprintBlackboard, createDefaultBlackboard, traceBlueprintError, traceBlueprintNode, traceBlueprintSkipped } from \"./runtime\";",
+    "import { BlueprintBlackboard, createDefaultBlackboard, traceBlueprintError, traceBlueprintNode, traceBlueprintNodeComplete, traceBlueprintSkipped } from \"./runtime\";",
     "import { pathToFileURL } from \"node:url\";",
     ...[...context.importAliases.entries()].map(([bodyRef, alias]) => {
       const template = templates.find((candidate) => candidate.bodyRef === bodyRef);
@@ -472,13 +472,14 @@ function emitFromNode(
   }
 
   lines.push(`${indent}// Node ${node.id}: ${template.name}`);
-  lines.push(`${indent}await traceBlueprintNode(${JSON.stringify(context.graph.id)}, ${JSON.stringify(node.id)}, ${JSON.stringify(template.name)}${traceContextArgument(node, template, context)});`);
+  lines.push(`${indent}await traceBlueprintNode(${JSON.stringify(context.graph.id)}, ${JSON.stringify(node.id)}, ${JSON.stringify(template.name)}${traceContextArgument(node, template)});`);
   switch (template.bodyRef) {
     case "control.entry":
       break;
     case "routing.controlHub":
       break;
     case "control.end":
+      lines.push(`${indent}traceBlueprintNodeComplete(${JSON.stringify(context.graph.id)}, ${JSON.stringify(node.id)}, ${JSON.stringify(template.name)});`);
       if (endMode === "return") {
         emitReturnForEndNode(node, context, lines, indent);
       }
@@ -494,6 +495,7 @@ function emitFromNode(
       const falseNode = findNextNode(context, node, "false");
       const conditionName = `__branch_${sanitizeIdentifier(node.id, "branch")}`;
       lines.push(`${indent}const ${conditionName} = Boolean(${expressionForInput(node, "condition", context)});`);
+      lines.push(`${indent}traceBlueprintNodeComplete(${JSON.stringify(context.graph.id)}, ${JSON.stringify(node.id)}, ${JSON.stringify(template.name)});`);
       lines.push(`${indent}if (${conditionName}) {`);
       emitSkippedPathTrace(falseNode, context, lines, `${indent}  `);
       emitFromNode(trueNode, context, lines, new Set(emitted), `${indent}  `, endMode);
@@ -506,6 +508,7 @@ function emitFromNode(
     case "control.forRange": {
       const loopNode = findNextNode(context, node, "loop");
       const completedNode = findNextNode(context, node, "completed");
+      lines.push(`${indent}traceBlueprintNodeComplete(${JSON.stringify(context.graph.id)}, ${JSON.stringify(node.id)}, ${JSON.stringify(template.name)});`);
       lines.push(`${indent}for (let index = ${expressionForInput(node, "start", context)}; index < ${expressionForInput(node, "end", context)}; index += 1) {`);
       emitFromNode(loopNode, context, lines, new Set(emitted), `${indent}  `, endMode);
       lines.push(`${indent}}`);
@@ -532,6 +535,7 @@ function emitFromNode(
       break;
   }
 
+  lines.push(`${indent}traceBlueprintNodeComplete(${JSON.stringify(context.graph.id)}, ${JSON.stringify(node.id)}, ${JSON.stringify(template.name)});`);
   emitFromNode(findNextNode(context, node), context, lines, emitted, indent, endMode);
 }
 
@@ -558,12 +562,26 @@ function emitSkippedPathTrace(
   }
 }
 
-function traceContextArgument(node: BlueprintNodeInstance, template: BlueprintNodeTemplate, context: CompilerContext): string {
+function traceContextArgument(node: BlueprintNodeInstance, template: BlueprintNodeTemplate): string {
   if (!template.inputs.length) {
     return "";
   }
-  const entries = template.inputs.map((port) => `${JSON.stringify(port.id)}: ${expressionForInput(node, port.id, context)}`);
+  const entries = template.inputs.flatMap((port) => {
+    const expression = traceContextExpressionForInput(node, port.id);
+    return expression ? [`${JSON.stringify(port.id)}: ${expression}`] : [];
+  });
+  if (!entries.length) {
+    return "";
+  }
   return `, { ${entries.join(", ")} }`;
+}
+
+function traceContextExpressionForInput(node: BlueprintNodeInstance, portId: string): string | undefined {
+  const binding = node.inputBindings[portId];
+  if (!binding || binding.sourceKind !== "literal") {
+    return undefined;
+  }
+  return literalExpression(binding.literalValue);
 }
 
 function emitMacroExpansion(
@@ -928,7 +946,7 @@ export async function traceBlueprintNode(graphId: string, nodeId: string, nodeNa
     return;
   }
   activeTraceNode = { graphId, nodeId, nodeName };
-  console.error(\`\${tracePrefix}\${JSON.stringify({ graphId, nodeId, nodeName, status: "visited", context, timestamp: Date.now() })}\`);
+  console.error(\`\${tracePrefix}\${JSON.stringify({ graphId, nodeId, nodeName, status: "active", context, timestamp: Date.now() })}\`);
   await waitForRuntimeStep(graphId, nodeId, nodeName, context);
   const breakpoint = traceBlueprintBreakpoint(graphId, nodeId, nodeName, context);
   if (breakpoint) {
@@ -940,12 +958,21 @@ export async function traceBlueprintNode(graphId: string, nodeId: string, nodeNa
   }
 }
 
+export function traceBlueprintNodeComplete(graphId: string, nodeId: string, nodeName: string, context: TraceContext = {}): void {
+  if (process.env.BLUEPRINT_TRACE !== "1") {
+    return;
+  }
+  if (activeTraceNode?.graphId === graphId && activeTraceNode.nodeId === nodeId) {
+    activeTraceNode = undefined;
+  }
+  console.error(\`\${tracePrefix}\${JSON.stringify({ graphId, nodeId, nodeName, status: "visited", context, timestamp: Date.now() })}\`);
+}
+
 export async function traceBlueprintSkipped(graphId: string, nodeId: string, nodeName: string): Promise<void> {
   if (process.env.BLUEPRINT_TRACE !== "1") {
     return;
   }
   console.error(\`\${tracePrefix}\${JSON.stringify({ graphId, nodeId, nodeName, status: "skipped", timestamp: Date.now() })}\`);
-  await waitForRuntimeStep(graphId, nodeId, nodeName);
 }
 
 async function waitForRuntimeStep(graphId: string, nodeId: string, nodeName: string, context: TraceContext = {}): Promise<void> {

@@ -1,5 +1,5 @@
 import { PanelBottom, PanelLeft, PanelRight } from "lucide-react";
-import { ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { Translator } from "./i18n";
 
 export function CollapsedDockPanel(props: {

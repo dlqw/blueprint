@@ -35,7 +35,7 @@ export async function traceBlueprintNode(graphId: string, nodeId: string, nodeNa
     return;
   }
   activeTraceNode = { graphId, nodeId, nodeName };
-  console.error(`${tracePrefix}${JSON.stringify({ graphId, nodeId, nodeName, status: "visited", context, timestamp: Date.now() })}`);
+  console.error(`${tracePrefix}${JSON.stringify({ graphId, nodeId, nodeName, status: "active", context, timestamp: Date.now() })}`);
   await waitForRuntimeStep(graphId, nodeId, nodeName, context);
   const breakpoint = traceBlueprintBreakpoint(graphId, nodeId, nodeName, context);
   if (breakpoint) {
@@ -47,12 +47,21 @@ export async function traceBlueprintNode(graphId: string, nodeId: string, nodeNa
   }
 }
 
+export function traceBlueprintNodeComplete(graphId: string, nodeId: string, nodeName: string, context: TraceContext = {}): void {
+  if (process.env.BLUEPRINT_TRACE !== "1") {
+    return;
+  }
+  if (activeTraceNode?.graphId === graphId && activeTraceNode.nodeId === nodeId) {
+    activeTraceNode = undefined;
+  }
+  console.error(`${tracePrefix}${JSON.stringify({ graphId, nodeId, nodeName, status: "visited", context, timestamp: Date.now() })}`);
+}
+
 export async function traceBlueprintSkipped(graphId: string, nodeId: string, nodeName: string): Promise<void> {
   if (process.env.BLUEPRINT_TRACE !== "1") {
     return;
   }
   console.error(`${tracePrefix}${JSON.stringify({ graphId, nodeId, nodeName, status: "skipped", timestamp: Date.now() })}`);
-  await waitForRuntimeStep(graphId, nodeId, nodeName);
 }
 
 async function waitForRuntimeStep(graphId: string, nodeId: string, nodeName: string, context: TraceContext = {}): Promise<void> {

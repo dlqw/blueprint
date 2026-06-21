@@ -1,15 +1,33 @@
 {
+  "comments": [
+    {
+      "color": "#e05f50",
+      "id": "comment-mqmay4iw",
+      "nodeIds": [
+        "setScore1"
+      ],
+      "position": {
+        "x": 960,
+        "y": 144
+      },
+      "size": {
+        "height": 242,
+        "width": 340
+      },
+      "title": "选择"
+    }
+  ],
   "debug": {
     "breakpoints": []
   },
-  "description": "Sample blueprint function with TypeScript mapped data flow. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0.",
+  "description": "Sample blueprint function with TypeScript mapped data flow. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0. 宿主：tauri2 0.1.0.",
   "format": "blueprint-graph",
   "id": "main",
   "layout": {
     "viewport": {
-      "x": 357.3248353470142,
-      "y": 178.75123173101588,
-      "zoom": 0.35
+      "x": 112.16299357112985,
+      "y": 116.1030743091642,
+      "zoom": 0.4430187147459154
     }
   },
   "links": [
@@ -54,11 +72,20 @@
       "toPortId": "exec"
     },
     {
-      "contextVariableId": "ctx-double-set",
+      "contextVariableId": "ctx-double-set-r0",
       "flowKind": "data",
       "fromNodeId": "double1",
       "fromPortId": "result",
-      "id": "link-double-set",
+      "id": "link-double-set-r0",
+      "toNodeId": "auto-hub-link-double-set-1",
+      "toPortId": "value"
+    },
+    {
+      "contextVariableId": "ctx-double-set-r1",
+      "flowKind": "data",
+      "fromNodeId": "auto-hub-link-double-set-1",
+      "fromPortId": "out",
+      "id": "link-double-set-r1",
       "toNodeId": "setScore1",
       "toPortId": "value"
     },
@@ -72,11 +99,20 @@
       "toPortId": "score"
     },
     {
-      "contextVariableId": "ctx-format-log",
+      "contextVariableId": "ctx-format-log-r0",
       "flowKind": "data",
       "fromNodeId": "format1",
       "fromPortId": "message",
-      "id": "link-format-log",
+      "id": "link-format-log-r0",
+      "toNodeId": "auto-hub-link-format-log-1",
+      "toPortId": "value"
+    },
+    {
+      "contextVariableId": "ctx-format-log-r1",
+      "flowKind": "data",
+      "fromNodeId": "auto-hub-link-format-log-1",
+      "fromPortId": "out",
+      "id": "link-format-log-r1",
       "toNodeId": "log1",
       "toPortId": "message"
     }
@@ -84,11 +120,14 @@
   "name": "Main",
   "nodes": [
     {
+      "displayOverrides": {
+        "disabled": false
+      },
       "id": "entry",
       "inputBindings": {},
       "position": {
-        "x": 80,
-        "y": 120
+        "x": 96,
+        "y": 72
       },
       "templateId": "builtin.control.entry"
     },
@@ -102,8 +141,8 @@
         }
       },
       "position": {
-        "x": 376.5797896662094,
-        "y": -82.68111396692258
+        "x": 80,
+        "y": 260
       },
       "templateId": "ts.TypeScript.Math.Double"
     },
@@ -116,14 +155,14 @@
           "sourceKind": "literal"
         },
         "value": {
-          "linkId": "link-double-set",
+          "linkId": "link-double-set-r1",
           "portId": "value",
           "sourceKind": "link"
         }
       },
       "position": {
-        "x": 640,
-        "y": 196
+        "x": 984,
+        "y": 192
       },
       "templateId": "builtin.blackboard.set"
     },
@@ -137,8 +176,8 @@
         }
       },
       "position": {
-        "x": 640,
-        "y": -124
+        "x": 80,
+        "y": 440
       },
       "templateId": "builtin.blackboard.get"
     },
@@ -152,8 +191,8 @@
         }
       },
       "position": {
-        "x": 684.4444444444445,
-        "y": 36.59258355034722
+        "x": 528,
+        "y": 432
       },
       "templateId": "graph.format-score"
     },
@@ -161,8 +200,8 @@
       "id": "traceMacro1",
       "inputBindings": {},
       "position": {
-        "x": 242.22188022594295,
-        "y": 371.9022821019363
+        "x": 528,
+        "y": 72
       },
       "templateId": "macro.trace-macro"
     },
@@ -170,14 +209,14 @@
       "id": "log1",
       "inputBindings": {
         "message": {
-          "linkId": "link-format-log",
+          "linkId": "link-format-log-r1",
           "portId": "message",
           "sourceKind": "link"
         }
       },
       "position": {
-        "x": 592.5124009861482,
-        "y": 438.18679120080674
+        "x": 1344,
+        "y": 432
       },
       "templateId": "builtin.debug.log"
     },
@@ -185,8 +224,8 @@
       "id": "announce1",
       "inputBindings": {},
       "position": {
-        "x": 980,
-        "y": 196
+        "x": 1920,
+        "y": 432
       },
       "templateId": "graph.announce"
     },
@@ -194,10 +233,48 @@
       "id": "end",
       "inputBindings": {},
       "position": {
-        "x": 1320,
-        "y": 196
+        "x": 2380,
+        "y": 432
       },
       "templateId": "builtin.control.end"
+    },
+    {
+      "displayOverrides": {
+        "autoLayoutHub": true,
+        "compact": true
+      },
+      "id": "auto-hub-link-double-set-1",
+      "inputBindings": {
+        "value": {
+          "linkId": "link-double-set-r0",
+          "portId": "value",
+          "sourceKind": "link"
+        }
+      },
+      "position": {
+        "x": 421,
+        "y": 332
+      },
+      "templateId": "builtin.routing.dataHub"
+    },
+    {
+      "displayOverrides": {
+        "autoLayoutHub": true,
+        "compact": true
+      },
+      "id": "auto-hub-link-format-log-1",
+      "inputBindings": {
+        "value": {
+          "linkId": "link-format-log-r0",
+          "portId": "value",
+          "sourceKind": "link"
+        }
+      },
+      "position": {
+        "x": 881,
+        "y": 512
+      },
+      "templateId": "builtin.routing.dataHub"
     }
   ],
   "templateMetadata": {
