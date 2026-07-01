@@ -25,9 +25,7 @@
   - Required approvals：≥1（单人开发可临时设为 0，但 PR 必须存在）
   - Dismiss stale pull request approvals when new commits are pushed：开
   - Require review from Code Owners：开（见 `.github/CODEOWNERS`，如未配置可先跳过）
-- ✅ Require status checks to pass before merging
-  - Require branches to be up to date before merging：开
-  - 必过检查：`test (windows)`、`build (windows)`、`branch-policy`
+  - 必过检查：`CI / test`、`CI / build`、`Branch Policy / enforce`
 - ✅ Require conversation resolution before merging
 - ✅ Require linear history（推荐 rebase merge）
 - ✅ Restrict who can push to matching branches：留空（无人可绕过 PR）
