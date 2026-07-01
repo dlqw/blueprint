@@ -1,0 +1,32 @@
+name: Branch Policy
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+    branches: [main, develop]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  enforce:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check source/target branch relationship
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+          HEAD: ${{ github.event.pull_request.head.ref }}
+        run: |
+          echo "PR: $HEAD -> $BASE"
+          if [ "$BASE" = "main" ] && [ "$HEAD" != "develop" ]; then
+            echo "::error::main 只能接受来自 develop 的合并（当前来源: $HEAD）"
+            exit 1
+          fi
+          if [ "$BASE" = "develop" ]; then
+            if [[ "$HEAD" != feature/* ]]; then
+              echo "::error::develop 只能接受来自 feature/* 分支的合并（当前来源: $HEAD）"
+              exit 1
+            fi
+          fi
+          echo "OK"
