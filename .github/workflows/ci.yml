@@ -58,6 +58,9 @@ jobs:
       - name: Install deps
         run: npm ci
 
+      - name: Build frontend & shared (required by tauri.conf.json resources)
+        run: npm run build
+
       - name: Tauri check
         run: npm run tauri:check
 
