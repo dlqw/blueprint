@@ -22,7 +22,7 @@ archive/
 .local/
 
 # Local AI / agent instructions and generated notes
-AGENTS.md
+# (Agents.md is the canonical project convention file — see CODEBUDDY.md)
 AGENT.md
 CODEX.md
 CLAUDE.md
@@ -30,7 +30,6 @@ GEMINI.md
 .agents/
 .codex/
 .cursor/
-.github/
 
 # Logs
 *.log
