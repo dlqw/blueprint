@@ -152,6 +152,8 @@ describe("Blueprint webview App", () => {
     expect(logNode).toHaveClass("node", "disabled");
     expect(logNode?.querySelector(".breakpoint-badge")).toBeTruthy();
     expect(container.querySelectorAll(".minimap-node")).toHaveLength(graph.nodes.length);
+    expect(container.querySelectorAll(".minimap-node.disabled")).toHaveLength(1);
+    expect(container.querySelectorAll(".minimap-node.breakpoint")).toHaveLength(1);
 
     window.dispatchEvent(new MessageEvent("message", {
       data: {
@@ -171,6 +173,7 @@ describe("Blueprint webview App", () => {
       const runtimeBadge = container.querySelector('[data-node-id="log1"] .runtime-badge');
       expect(runtimeBadge).toHaveClass("error");
       expect(runtimeBadge).toHaveTextContent("!");
+      expect(container.querySelector(".minimap-node.runtime-error")).toBeTruthy();
     });
     expect(postedMessages.filter((message) => message.type === "graphChanged")).toHaveLength(graphChangeCount);
   });

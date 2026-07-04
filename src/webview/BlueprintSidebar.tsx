@@ -18,6 +18,7 @@ import { templateSourcePath } from "../shared/templateRefactor";
 import { fallbackLocale, type Locale, type Translator } from "./i18n";
 import type { NodeLabelMode } from "./editorPrefs";
 import { CollapsedDockPanel } from "./WorkbenchPanels";
+import { CommandButton, IconButton, PanelHeader, SearchBox, TabsList, TabsTrigger, TextInput } from "./ui/primitives";
 
 interface NodeFindEntry {
   node: BlueprintNodeInstance;
@@ -189,14 +190,13 @@ export function BlueprintSidebar(props: {
     { id: "bookmarks", label: t("sidebar.bookmarks"), count: props.bookmarks.length },
     { id: "breakpoints", label: t("sidebar.breakpoints"), count: props.breakpointNodes.length }
   ];
-  const tabClassName = (tab: SidebarTabId) => activeTab === tab ? "node-tab active" : "node-tab";
   const tabContentClassName = (tab: SidebarTabId) => activeTab === tab ? "node-tab-content active" : "node-tab-content";
   const referenceGroupTitle = (label: string, count: number, nodeIds: string[], title: string) => (
     <div className="reference-group-title">
       <span>{label} <span>{count}</span></span>
-      <button type="button" title={title} onClick={() => props.onSelectNodes(nodeIds)}>
+      <IconButton type="button" title={title} onClick={() => props.onSelectNodes(nodeIds)}>
         <CheckCircle2 size={12} />
-      </button>
+      </IconButton>
     </div>
   );
   const solutionReferenceGroupTitle = (
@@ -208,93 +208,96 @@ export function BlueprintSidebar(props: {
     <div className="reference-group-title">
       <span>{label} <span>{entries.length}</span></span>
       {actions?.renameKey ? (
-        <button type="button" title={t("sidebar.renameSolutionVariable", { key: actions.renameKey })} onClick={() => promptRenameSolutionBlackboardKey(actions.renameKey ?? "", props.onRenameSolutionBlackboardKey, t)}>
+        <IconButton type="button" title={t("sidebar.renameSolutionVariable", { key: actions.renameKey })} onClick={() => promptRenameSolutionBlackboardKey(actions.renameKey ?? "", props.onRenameSolutionBlackboardKey, t)}>
           <Pencil size={12} />
-        </button>
+        </IconButton>
       ) : null}
       {actions?.templateId ? (
-        <button type="button" title={t("sidebar.retargetSolutionTemplate", { templateId: actions.templateId })} onClick={() => promptRetargetSolutionTemplate(actions.templateId ?? "", props.onRetargetSolutionTemplate, t)}>
+        <IconButton type="button" title={t("sidebar.retargetSolutionTemplate", { templateId: actions.templateId })} onClick={() => promptRetargetSolutionTemplate(actions.templateId ?? "", props.onRetargetSolutionTemplate, t)}>
           <Pencil size={12} />
-        </button>
+        </IconButton>
       ) : null}
       {actions?.sourcePath ? (
-        <button type="button" title={t("sidebar.retargetSourceFile", { sourcePath: actions.sourcePath })} onClick={() => promptRetargetSolutionTemplateSource(actions.sourcePath ?? "", props.onRetargetSolutionTemplateSource, t)}>
+        <IconButton type="button" title={t("sidebar.retargetSourceFile", { sourcePath: actions.sourcePath })} onClick={() => promptRetargetSolutionTemplateSource(actions.sourcePath ?? "", props.onRetargetSolutionTemplateSource, t)}>
           <Pencil size={12} />
-        </button>
+        </IconButton>
       ) : null}
-      <button type="button" title={title} onClick={() => copyReferenceEntries(entries)}>
+      <IconButton type="button" title={title} onClick={() => copyReferenceEntries(entries)}>
         <Copy size={12} />
-      </button>
+      </IconButton>
     </div>
   );
 
   return (
     <aside className="side-panel nav-panel">
-      <div className="panel-title">
-        <span><Braces size={16} /> {t("sidebar.title")}</span>
-        <button type="button" title={t("dock.hide", { title: t("sidebar.title") })} onClick={props.onClose}>
+      <PanelHeader
+        className="panel-title"
+        icon={<Braces size={16} />}
+        title={t("sidebar.title")}
+        action={(
+        <IconButton type="button" title={t("dock.hide", { title: t("sidebar.title") })} onClick={props.onClose}>
           <PanelRight size={14} />
-        </button>
-      </div>
-      <div className="node-editor-tabs" role="tablist" aria-label={t("sidebar.title")}>
+        </IconButton>
+        )}
+      />
+      <TabsList className="node-editor-tabs" label={t("sidebar.title")}>
         {tabs.map((tab) => (
-          <button
+          <TabsTrigger
             key={tab.id}
             type="button"
-            role="tab"
-            aria-selected={activeTab === tab.id}
+            active={activeTab === tab.id}
             aria-controls={`node-tab-${tab.id}`}
-            className={tabClassName(tab.id)}
+            className="node-tab"
             onClick={() => setActiveTab(tab.id)}
           >
             <span>{tab.label}</span>
             {tab.count !== undefined ? <small>{tab.count}</small> : null}
-          </button>
+          </TabsTrigger>
         ))}
-      </div>
+      </TabsList>
       <div className="node-editor-tab-shell">
         <div id="node-tab-find" role="tabpanel" className={tabContentClassName("find")} hidden={activeTab !== "find"}>
-          <button className="tool-button" onClick={props.onAddNode}>
+          <CommandButton type="button" className="tool-button" onClick={props.onAddNode}>
             <Plus size={16} /> {t("sidebar.addNode")}
-          </button>
-          <label className="side-search">
-            <Search size={14} />
-            <input
-              ref={props.nodeFindInputRef}
-              value={props.nodeFindQuery}
-              placeholder={t("sidebar.findNodes")}
-              onChange={(event) => props.onNodeFindQueryChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  const first = props.nodeFindResults[0];
-                  if (first) {
-                    props.onFocusNode(first.node.id);
-                  }
+          </CommandButton>
+          <SearchBox
+            ref={props.nodeFindInputRef}
+            className="side-search"
+            icon={<Search size={14} />}
+            value={props.nodeFindQuery}
+            placeholder={t("sidebar.findNodes")}
+            onChange={(event) => props.onNodeFindQueryChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                const first = props.nodeFindResults[0];
+                if (first) {
+                  props.onFocusNode(first.node.id);
                 }
-                if (event.key === "Escape") {
-                  props.onNodeFindQueryChange("");
-                  event.currentTarget.blur();
-                }
-              }}
-            />
-          </label>
+              }
+              if (event.key === "Escape") {
+                props.onNodeFindQueryChange("");
+                event.currentTarget.blur();
+              }
+            }}
+          />
           {props.nodeFindQuery.trim() ? (
             <div className="mini-list">
               {props.nodeFindResults.map(({ node, template, matchLabel }) => (
-                <button
+                <CommandButton
                   key={node.id}
-                  className={props.selectedNodeIds.has(node.id) ? "mini-item active" : "mini-item"}
+                  active={props.selectedNodeIds.has(node.id)}
+                  className="mini-item"
                   onClick={(event) => selectOrFocusNode(node.id, event)}
                 >
                   <span>{templateName(template, node.templateId)}</span>
                   <small>{matchLabel ?? node.id}</small>
-                </button>
+                </CommandButton>
               ))}
               {props.solutionFindResults.length ? (
                 <>
                   <span className="mini-empty">{t("sidebar.solutionMatches")}</span>
                   {props.solutionFindResults.map((entry) => (
-                    <button
+                    <CommandButton
                       key={`${entry.graphPath}:${entry.nodeId ?? "graph"}`}
                       type="button"
                       className="mini-item"
@@ -303,7 +306,7 @@ export function BlueprintSidebar(props: {
                     >
                       <span>{entry.nodeId ? `${templateName(entry.template, entry.nodeId)}` : entry.graphName}</span>
                       <small>{entry.matchLabel ?? `${entry.projectName} / ${entry.graphKind}`}</small>
-                    </button>
+                    </CommandButton>
                   ))}
                 </>
               ) : null}
@@ -321,23 +324,24 @@ export function BlueprintSidebar(props: {
                 <div className="outline-subgroup-title">{project.name} <span>{project.graphs.length}</span></div>
                 {project.graphs.map((graph) => (
                   <div key={graph.path} className="structure-graph-row">
-                    <button
+                    <CommandButton
                       type="button"
-                      className={props.solution?.activeGraphPath === graph.path ? "mini-item structure-item active" : "mini-item structure-item"}
+                      active={props.solution?.activeGraphPath === graph.path}
+                      className="mini-item structure-item"
                       title={t("sidebar.openSolutionGraph", { graphName: graph.name })}
                       onClick={() => props.onOpenGraph(graph.path)}
                     >
                       <span>{graph.name}</span>
                       <small>{graph.kind}</small>
-                    </button>
-                    <button
+                    </CommandButton>
+                    <IconButton
                       type="button"
                       className="structure-graph-action"
                       title={t("sidebar.renameSolutionGraph", { graphName: graph.name })}
                       onClick={() => props.onRenameSolutionGraph(graph.path, graph.name)}
                     >
                       <Pencil size={12} />
-                    </button>
+                    </IconButton>
                   </div>
                 ))}
               </div>
@@ -345,10 +349,10 @@ export function BlueprintSidebar(props: {
           </>
         ) : null}
         <div className="structure-group-title">{t("sidebar.graphs")} <span>1</span></div>
-        <button className="mini-item structure-item active" title={t("sidebar.activeGraph", { graphName: props.graph.name })} onClick={() => props.onOutlineQueryChange("")}>
+        <CommandButton type="button" active className="mini-item structure-item" title={t("sidebar.activeGraph", { graphName: props.graph.name })} onClick={() => props.onOutlineQueryChange("")}>
           <span>{props.graph.name}</span>
           <small>{props.graph.kind ?? "function"}</small>
-        </button>
+        </CommandButton>
         <div className="structure-group-title">{t("sidebar.inputs")} <span>{graphInputs.length}</span></div>
         {graphInputs.map((port) => (
           <span key={port.id} className="mini-item structure-item variable">
@@ -388,20 +392,19 @@ export function BlueprintSidebar(props: {
         </div>
         <div id="node-tab-outline" role="tabpanel" className={tabContentClassName("outline")} hidden={activeTab !== "outline"}>
           <div className="outline-list">
-        <label className="side-search outline-search">
-          <Search size={13} />
-          <input
-            value={props.outlineQuery}
-            placeholder={t("sidebar.filterOutline")}
-            onChange={(event) => props.onOutlineQueryChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                props.onOutlineQueryChange("");
-                event.currentTarget.blur();
-              }
-            }}
-          />
-        </label>
+        <SearchBox
+          className="side-search outline-search"
+          icon={<Search size={13} />}
+          value={props.outlineQuery}
+          placeholder={t("sidebar.filterOutline")}
+          onChange={(event) => props.onOutlineQueryChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              props.onOutlineQueryChange("");
+              event.currentTarget.blur();
+            }
+          }}
+        />
         <div className="outline-group-title">
           {t("sidebar.nodes")} <span>{props.outlineQuery.trim() ? `${props.filteredGraphOutlineNodeCount}/${props.graphOutlineNodeCount}` : props.graphOutlineNodeCount}</span>
         </div>
@@ -409,15 +412,16 @@ export function BlueprintSidebar(props: {
           <div key={group.category} className="outline-node-group">
             <div className="outline-subgroup-title">{group.category} <span>{group.entries.length}</span></div>
             {group.entries.map(({ node, template }) => (
-              <button
+              <CommandButton
                 key={node.id}
-                className={props.selectedNodeIds.has(node.id) ? "mini-item outline-item active" : "mini-item outline-item"}
+                active={props.selectedNodeIds.has(node.id)}
+                className="mini-item outline-item"
                 title={t("sidebar.focusOutlineNode", { nodeId: node.id })}
                 onClick={(event) => selectOrFocusNode(node.id, event)}
               >
                 <span>{templateName(template, node.templateId)}</span>
                 <small>{node.id}</small>
-              </button>
+              </CommandButton>
             ))}
           </div>
         ))}
@@ -433,9 +437,10 @@ export function BlueprintSidebar(props: {
               {t("sidebar.comments")} <span>{props.outlineQuery.trim() ? `${props.filteredGraphOutlineComments.length}/${props.graphOutlineCommentCount}` : props.graphOutlineCommentCount}</span>
             </div>
             {props.filteredGraphOutlineComments.map((comment) => (
-              <button
+              <CommandButton
                 key={comment.id}
-                className={props.selectedCommentIds.has(comment.id) ? "mini-item outline-item comment active" : "mini-item outline-item comment"}
+                active={props.selectedCommentIds.has(comment.id)}
+                className="mini-item outline-item comment"
                 title={t("sidebar.focusOutlineComment", { comment: comment.title || comment.id })}
                 onClick={(event) => {
                   if (event.ctrlKey || event.metaKey || event.shiftKey) {
@@ -447,7 +452,7 @@ export function BlueprintSidebar(props: {
               >
                 <span>{comment.title || t("sidebar.commentFallback")}</span>
                 <small>{comment.nodeIds.length ? t("sidebar.groupedNodes", { count: comment.nodeIds.length }) : `${Math.round(comment.position.x)}, ${Math.round(comment.position.y)}`}</small>
-              </button>
+              </CommandButton>
             ))}
             {props.outlineQuery.trim() && !props.filteredGraphOutlineComments.length ? <span className="mini-empty">{t("sidebar.noMatchingComments")}</span> : null}
           </>
@@ -460,9 +465,9 @@ export function BlueprintSidebar(props: {
           <div className="reference-anchor">
             <span>{templateName(selectedTemplate, selectedNode.templateId)}</span>
             <small>{selectedNode.id}</small>
-            <button type="button" title={t("sidebar.renameSelectedNode", { nodeId: selectedNode.id })} onClick={() => promptRenameGraphNodeId(selectedNode.id, props.onRenameGraphNodeId, t)}>
+            <IconButton type="button" title={t("sidebar.renameSelectedNode", { nodeId: selectedNode.id })} onClick={() => promptRenameGraphNodeId(selectedNode.id, props.onRenameGraphNodeId, t)}>
               <Pencil size={12} />
-            </button>
+            </IconButton>
           </div>
           {incomingReferences.length ? (
             <>
@@ -470,10 +475,10 @@ export function BlueprintSidebar(props: {
               {incomingReferences.map(({ link, node }) => {
                 const template = getEffectiveTemplateForNode(props.graph, props.templates, node);
                 return (
-                  <button key={link.id} className="mini-item reference-item" title={t("sidebar.focusReferenceNode", { nodeId: node.id })} onClick={(event) => selectOrFocusNode(node.id, event)}>
+                  <CommandButton key={link.id} className="mini-item reference-item" title={t("sidebar.focusReferenceNode", { nodeId: node.id })} onClick={(event) => selectOrFocusNode(node.id, event)}>
                     <span>{templateName(template, node.templateId)}</span>
                     <small>{node.id}.{link.fromPortId}{" -> "}{selectedNode.id}.{link.toPortId}</small>
-                  </button>
+                  </CommandButton>
                 );
               })}
             </>
@@ -484,10 +489,10 @@ export function BlueprintSidebar(props: {
               {outgoingReferences.map(({ link, node }) => {
                 const template = getEffectiveTemplateForNode(props.graph, props.templates, node);
                 return (
-                  <button key={link.id} className="mini-item reference-item" title={t("sidebar.focusReferenceNode", { nodeId: node.id })} onClick={(event) => selectOrFocusNode(node.id, event)}>
+                  <CommandButton key={link.id} className="mini-item reference-item" title={t("sidebar.focusReferenceNode", { nodeId: node.id })} onClick={(event) => selectOrFocusNode(node.id, event)}>
                     <span>{templateName(template, node.templateId)}</span>
                     <small>{selectedNode.id}.{link.fromPortId}{" -> "}{node.id}.{link.toPortId}</small>
-                  </button>
+                  </CommandButton>
                 );
               })}
             </>
@@ -496,10 +501,10 @@ export function BlueprintSidebar(props: {
             <>
               {referenceGroupTitle(t("sidebar.sameTemplate"), templateReferences.length, [selectedNode.id, ...templateReferences.map(({ node }) => node.id)], t("sidebar.selectSameTemplateReferenceNodes"))}
               {templateReferences.map(({ node, template }) => (
-                <button key={node.id} className="mini-item reference-item" title={t("sidebar.focusReferenceNode", { nodeId: node.id })} onClick={(event) => selectOrFocusNode(node.id, event)}>
+                <CommandButton key={node.id} className="mini-item reference-item" title={t("sidebar.focusReferenceNode", { nodeId: node.id })} onClick={(event) => selectOrFocusNode(node.id, event)}>
                   <span>{templateName(template, node.templateId)}</span>
                   <small>{node.id}</small>
-                </button>
+                </CommandButton>
               ))}
             </>
           ) : null}
@@ -507,10 +512,10 @@ export function BlueprintSidebar(props: {
             <>
               {referenceGroupTitle(t("sidebar.variableUses"), variableReferences.length, [selectedNode.id, ...variableReferences.map(({ node }) => node.id)], t("sidebar.selectVariableReferenceNodes"))}
               {variableReferences.map(({ node, template, key, access }) => (
-                <button key={node.id} className="mini-item reference-item" title={t("sidebar.focusVariableReferenceNode", { nodeId: node.id })} onClick={(event) => selectOrFocusNode(node.id, event)}>
+                <CommandButton key={node.id} className="mini-item reference-item" title={t("sidebar.focusVariableReferenceNode", { nodeId: node.id })} onClick={(event) => selectOrFocusNode(node.id, event)}>
                   <span>{access === "get" ? t("sidebar.get") : t("sidebar.set")} {key}</span>
                   <small>{templateName(template, node.templateId)} / {node.id}</small>
-                </button>
+                </CommandButton>
               ))}
             </>
           ) : null}
@@ -518,7 +523,7 @@ export function BlueprintSidebar(props: {
             <>
               {solutionReferenceGroupTitle(t("sidebar.solutionTemplate"), solutionTemplateReferences, t("sidebar.copySolutionTemplateReferences"), { templateId: selectedNode.templateId })}
               {solutionTemplateReferences.map((entry) => (
-                <button
+                <CommandButton
                   key={`${entry.graphPath}:${entry.nodeId}`}
                   type="button"
                   className="mini-item reference-item"
@@ -527,7 +532,7 @@ export function BlueprintSidebar(props: {
                 >
                   <span>{templateName(entry.template, selectedNode.templateId)}</span>
                   <small>{entry.projectName} / {entry.graphName} / {entry.nodeId}</small>
-                </button>
+                </CommandButton>
               ))}
             </>
           ) : null}
@@ -535,7 +540,7 @@ export function BlueprintSidebar(props: {
             <>
               {solutionReferenceGroupTitle(t("sidebar.solutionVariable"), solutionVariableReferences, t("sidebar.copySolutionVariableReferences"), { renameKey: selectedBlackboardReference?.key })}
               {solutionVariableReferences.map((entry) => (
-                <button
+                <CommandButton
                   key={`${entry.graphPath}:${entry.nodeId}`}
                   type="button"
                   className="mini-item reference-item"
@@ -544,7 +549,7 @@ export function BlueprintSidebar(props: {
                 >
                   <span>{entry.blackboardAccess === "get" ? t("sidebar.get") : t("sidebar.set")} {entry.blackboardKey}</span>
                   <small>{entry.projectName} / {entry.graphName} / {entry.nodeId}</small>
-                </button>
+                </CommandButton>
               ))}
             </>
           ) : null}
@@ -552,7 +557,7 @@ export function BlueprintSidebar(props: {
             <>
               {solutionReferenceGroupTitle(t("sidebar.sourceFile"), solutionSourceReferences, t("sidebar.copySourceFileReferences"), { sourcePath: selectedSourcePath })}
               {solutionSourceReferences.map((entry) => (
-                <button
+                <CommandButton
                   key={`${entry.graphPath}:${entry.nodeId}`}
                   type="button"
                   className="mini-item reference-item"
@@ -561,7 +566,7 @@ export function BlueprintSidebar(props: {
                 >
                   <span>{templateName(entry.template, entry.nodeId)}</span>
                   <small>{entry.projectName} / {entry.graphName} / {entry.nodeId}</small>
-                </button>
+                </CommandButton>
               ))}
             </>
           ) : null}
@@ -574,11 +579,11 @@ export function BlueprintSidebar(props: {
           <div className="bookmark-list">
           {props.bookmarks.map((bookmark) => (
             <div key={bookmark.id} className="mini-item bookmark-item">
-              <button className="bookmark-focus" title={t("sidebar.focusBookmark", { label: bookmark.label })} onClick={() => props.onFocusBookmark(bookmark)}>
+              <IconButton type="button" className="bookmark-focus" title={t("sidebar.focusBookmark", { label: bookmark.label })} onClick={() => props.onFocusBookmark(bookmark)}>
                 <Focus size={13} />
-              </button>
+              </IconButton>
               <span className="bookmark-detail">
-                <input
+                <TextInput
                   aria-label={t("sidebar.bookmarkLabel", { label: bookmark.label })}
                   defaultValue={bookmark.label}
                   onBlur={(event) => props.onRenameBookmark(bookmark.id, event.currentTarget.value)}
@@ -594,13 +599,14 @@ export function BlueprintSidebar(props: {
                 />
                 <small>{bookmark.nodeId ?? `${Math.round(bookmark.position.x)}, ${Math.round(bookmark.position.y)}`}</small>
               </span>
-              <button
+              <IconButton
+                type="button"
                 className="bookmark-clear"
                 title={t("sidebar.deleteBookmark", { label: bookmark.label })}
                 onClick={() => props.onDeleteBookmark(bookmark.id)}
               >
                 <XCircle size={13} />
-              </button>
+              </IconButton>
             </div>
           ))}
           </div>
@@ -615,18 +621,20 @@ export function BlueprintSidebar(props: {
             const enabled = breakpoint?.enabled !== false;
             return (
               <div key={node.id} className="mini-item breakpoint-item">
-                <button
-                  className={enabled ? "breakpoint-enabled active" : "breakpoint-enabled"}
+                <IconButton
+                  type="button"
+                  active={enabled}
+                  className="breakpoint-enabled"
                   title={enabled ? t("sidebar.disableBreakpoint", { nodeId: node.id }) : t("sidebar.enableBreakpoint", { nodeId: node.id })}
                   onClick={() => props.onToggleBreakpointEnabled(node.id)}
                 >
                   <CircleDot size={12} />
-                </button>
-                <button className="breakpoint-focus" onClick={() => props.onFocusBreakpoint(node.id)}>
+                </IconButton>
+                <CommandButton type="button" className="breakpoint-focus" onClick={() => props.onFocusBreakpoint(node.id)}>
                   <span>{templateName(template, node.templateId)}</span>
                   <small>{node.id}</small>
-                </button>
-                <input
+                </CommandButton>
+                <TextInput
                   className="breakpoint-condition"
                   value={breakpoint?.condition ?? ""}
                   placeholder="hit >= 2"
@@ -634,13 +642,14 @@ export function BlueprintSidebar(props: {
                   onChange={(event) => props.onSetBreakpointCondition(node.id, event.target.value)}
                   onBlur={(event) => props.onSetBreakpointCondition(node.id, event.target.value, { commitToGraph: true })}
                 />
-                <button
+                <IconButton
+                  type="button"
                   className="breakpoint-clear"
                   title={t("sidebar.clearBreakpoint", { nodeId: node.id })}
                   onClick={() => props.onClearBreakpoint(node.id)}
                 >
                   <XCircle size={13} />
-                </button>
+                </IconButton>
               </div>
             );
           })}
