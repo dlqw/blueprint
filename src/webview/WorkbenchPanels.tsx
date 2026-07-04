@@ -1,6 +1,7 @@
 import { PanelBottom, PanelLeft, PanelRight } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Translator } from "./i18n";
+import { CommandButton } from "./ui/primitives";
 
 export function CollapsedDockPanel(props: {
   side: "left" | "right";
@@ -12,10 +13,10 @@ export function CollapsedDockPanel(props: {
   const Icon = props.side === "left" ? PanelLeft : PanelRight;
   return (
     <aside className={`dock-strip ${props.side}`} aria-label={props.collapsedLabel}>
-      <button type="button" title={props.showTitle} onClick={props.onOpen}>
+      <CommandButton type="button" title={props.showTitle} onClick={props.onOpen}>
         <Icon size={16} />
         <span>{props.title}</span>
-      </button>
+      </CommandButton>
     </aside>
   );
 }
@@ -30,10 +31,10 @@ export function BottomRunPanel(props: {
 }): JSX.Element {
   return (
     <footer className={props.open ? "output run-panel" : "output run-panel collapsed"}>
-      <button className="run-panel-edge-toggle" type="button" title={props.open ? props.t("runPanel.collapseTitle") : props.t("runPanel.expandTitle")} onClick={props.onToggle}>
+      <CommandButton className="run-panel-edge-toggle" type="button" title={props.open ? props.t("runPanel.collapseTitle") : props.t("runPanel.expandTitle")} onClick={props.onToggle}>
         <PanelBottom size={14} />
         <span>{props.open ? props.t("runPanel.collapse") : props.t("runPanel.expand")}</span>
-      </button>
+      </CommandButton>
       {props.open ? (
         <div className="run-panel-body">
           <div className="run-panel-body-summary">

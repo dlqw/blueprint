@@ -1,6 +1,7 @@
 import { MousePointer2, PanelRight } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Translator } from "./i18n";
+import { IconButton, PanelHeader } from "./ui/primitives";
 import { CollapsedDockPanel } from "./WorkbenchPanels";
 
 export function InspectorPanel(props: {
@@ -17,12 +18,16 @@ export function InspectorPanel(props: {
 
   return (
     <aside className="side-panel inspector">
-      <div className="panel-title">
-        <span><PanelRight size={16} /> {title}</span>
-        <button type="button" title={props.t("dock.hide", { title })} onClick={props.onClose}>
-          <PanelRight size={14} />
-        </button>
-      </div>
+      <PanelHeader
+        className="panel-title"
+        icon={<PanelRight size={16} />}
+        title={title}
+        action={
+          <IconButton type="button" title={props.t("dock.hide", { title })} onClick={props.onClose}>
+            <PanelRight size={14} />
+          </IconButton>
+        }
+      />
       {props.children ?? <div className="empty-state"><MousePointer2 size={18} /> {props.t("inspector.selectNode")}</div>}
     </aside>
   );
