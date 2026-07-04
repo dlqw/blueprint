@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { commandMatchesQuery, commandShortcuts, EditorCommand, shortcutLabel } from "./commands";
 import type { Translator } from "./i18n";
 import { isolateOverlayContextMenu, isolateOverlayEvent } from "./overlayEvents";
+import { DialogBackdrop, DialogFrame, KeyboardShortcut, ListActionButton, SearchBox } from "./ui/primitives";
 
 export function CommandPalette(props: {
   open: boolean;
@@ -45,50 +46,40 @@ export function CommandPalette(props: {
   };
 
   return (
-    <div
-      className="command-palette-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          props.onClose();
-        }
-      }}
-    >
-      <section
+    <DialogBackdrop className="command-palette-backdrop" onDismiss={props.onClose}>
+      <DialogFrame
         className="command-palette"
-        role="dialog"
-        aria-label={props.t("commandPalette.label")}
+        label={props.t("commandPalette.label")}
         onPointerDown={isolateOverlayEvent}
         onWheel={isolateOverlayEvent}
         onContextMenu={isolateOverlayContextMenu}
       >
-        <label className="command-palette-search">
-          <Search size={16} />
-          <input
-            ref={inputRef}
-            value={query}
-            placeholder={props.t("commandPalette.placeholder")}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.preventDefault();
-                props.onClose();
-              } else if (event.key === "ArrowDown") {
-                event.preventDefault();
-                setActiveIndex((current) => Math.min(current + 1, Math.max(0, visibleCommands.length - 1)));
-              } else if (event.key === "ArrowUp") {
-                event.preventDefault();
-                setActiveIndex((current) => Math.max(0, current - 1));
-              } else if (event.key === "Enter") {
-                event.preventDefault();
-                const command = visibleCommands[activeIndex];
-                if (command) {
-                  runCommand(command);
-                }
+        <SearchBox
+          ref={inputRef}
+          className="command-palette-search"
+          icon={<Search size={16} />}
+          value={query}
+          placeholder={props.t("commandPalette.placeholder")}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              props.onClose();
+            } else if (event.key === "ArrowDown") {
+              event.preventDefault();
+              setActiveIndex((current) => Math.min(current + 1, Math.max(0, visibleCommands.length - 1)));
+            } else if (event.key === "ArrowUp") {
+              event.preventDefault();
+              setActiveIndex((current) => Math.max(0, current - 1));
+            } else if (event.key === "Enter") {
+              event.preventDefault();
+              const command = visibleCommands[activeIndex];
+              if (command) {
+                runCommand(command);
               }
-            }}
-          />
-        </label>
+            }
+          }}
+        />
         <div className="command-list">
           {visibleCommands.length ? groupedCommands.map((group) => (
             <div key={group.category} className="command-group">
@@ -96,23 +87,24 @@ export function CommandPalette(props: {
               {group.commands.map((command) => {
                 const index = visibleCommands.indexOf(command);
                 return (
-                  <button
+                  <ListActionButton
                     key={command.id}
-                    className={index === activeIndex ? "command-item active" : "command-item"}
+                    className="command-item"
+                    active={index === activeIndex}
                     disabled={command.disabled}
+                    trailing={commandShortcuts(command)[0] ? <KeyboardShortcut>{shortcutLabel(commandShortcuts(command)[0])}</KeyboardShortcut> : null}
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => runCommand(command)}
                   >
-                    <span>{command.title}</span>
-                    {commandShortcuts(command)[0] ? <kbd>{shortcutLabel(commandShortcuts(command)[0])}</kbd> : null}
-                  </button>
+                    {command.title}
+                  </ListActionButton>
                 );
               })}
             </div>
           )) : <div className="command-empty">{props.t("commandPalette.empty")}</div>}
         </div>
-      </section>
-    </div>
+      </DialogFrame>
+    </DialogBackdrop>
   );
 }
 

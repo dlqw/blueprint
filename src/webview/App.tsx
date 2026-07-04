@@ -135,6 +135,28 @@ import { canvasInteractionReducer, idleInteractionState } from "./interactionSta
 import { capturePointer, isolateOverlayContextMenu, isolateOverlayEvent, preventOverlayDefault } from "./overlayEvents";
 import { RunActionBar, type RunActionBarRuntimeState } from "./RunActionBar";
 import { RuntimePanel } from "./RuntimePanel";
+import {
+  CheckboxRow,
+  CheckboxInput,
+  CommandButton,
+  DialogBackdrop,
+  DialogFrame,
+  DialogHeader,
+  ColorInput,
+  IconButton,
+  ListActionButton,
+  MenuActionButton,
+  MenuSection,
+  MenuSurface,
+  NumberInput,
+  SearchBox,
+  SegmentedButton,
+  SegmentedControl,
+  SelectInput,
+  TabsList,
+  TabsTrigger,
+  TextInput
+} from "./ui/primitives";
 
 interface DragPort {
   nodeId: string;
@@ -2478,12 +2500,12 @@ export function App(props: AppProps = {}): JSX.Element {
         <div className="loading-panel">
           <div>{t("loading.graph")}</div>
           {loadingTimedOut ? (
-            <button className="tool-button" onClick={() => {
+            <CommandButton className="tool-button" onClick={() => {
               setLoadingTimedOut(false);
               hostClient.notifyReady();
             }}>
               <RotateCcw size={16} /> {t("loading.retry")}
-            </button>
+            </CommandButton>
           ) : null}
         </div>
       </div>
@@ -2777,49 +2799,49 @@ export function App(props: AppProps = {}): JSX.Element {
       return null;
     }
     return (
-      <button key={id} className="icon-button" title={action.title} aria-label={action.title} onClick={action.run} disabled={action.disabled}>
+      <IconButton key={id} className="icon-button" title={action.title} aria-label={action.title} onClick={action.run} disabled={action.disabled}>
         {action.icon}
-      </button>
+      </IconButton>
     );
   };
   const primaryToolbarItems = [
-    mainToolbarActionVisible("commandPalette") ? <button key="commandPalette" className="icon-button" title={t("toolbar.commandPalette")} aria-label={t("toolbar.commandPalette")} onClick={() => setCommandPaletteOpen(true)}><Command size={16} /></button> : null,
+    mainToolbarActionVisible("commandPalette") ? <IconButton key="commandPalette" className="icon-button" title={t("toolbar.commandPalette")} aria-label={t("toolbar.commandPalette")} onClick={() => setCommandPaletteOpen(true)}><Command size={16} /></IconButton> : null,
     mainToolbarActionVisible("compile") ? promotedActionButton("compile") : null,
     mainToolbarActionVisible("validate") ? promotedActionButton("validate") : null,
     mainToolbarActionVisible("findNode") ? promotedActionButton("findNode") : null,
-    mainToolbarActionVisible("fitGraph") ? <button key="fitGraph" className="icon-button" title={t("canvasCommands.fitGraph")} aria-label={t("canvasCommands.fitGraph")} onClick={fitGraphToCanvas} disabled={viewportLocked}><Focus size={16} /></button> : null,
-    mainToolbarActionVisible("resetZoom") ? <button key="resetZoom" className="icon-button text-button" title={t("canvasCommands.resetZoom")} aria-label={t("canvasCommands.resetZoom")} onClick={() => zoomViewportAtCanvasCenter(1)} disabled={viewportLocked}>{Math.round(viewport.zoom * 100)}%</button> : null
+    mainToolbarActionVisible("fitGraph") ? <IconButton key="fitGraph" className="icon-button" title={t("canvasCommands.fitGraph")} aria-label={t("canvasCommands.fitGraph")} onClick={fitGraphToCanvas} disabled={viewportLocked}><Focus size={16} /></IconButton> : null,
+    mainToolbarActionVisible("resetZoom") ? <IconButton key="resetZoom" className="icon-button text-button" title={t("canvasCommands.resetZoom")} aria-label={t("canvasCommands.resetZoom")} onClick={() => zoomViewportAtCanvasCenter(1)} disabled={viewportLocked}>{Math.round(viewport.zoom * 100)}%</IconButton> : null
   ].filter(Boolean);
   const viewToolbarItems = [
-    mainToolbarActionVisible("minimap") ? <button key="minimap" className={minimapVisible ? "icon-button active" : "icon-button"} title={minimapVisible ? t("canvasCommands.hideMinimap") : t("canvasCommands.showMinimap")} aria-label={minimapVisible ? t("canvasCommands.hideMinimap") : t("canvasCommands.showMinimap")} onClick={() => updateEditorPrefs({ minimapVisible: !minimapVisible })}><MapIcon size={16} /></button> : null,
-    mainToolbarActionVisible("links") ? <button key="links" className={linksVisible ? "icon-button active" : "icon-button"} title={linksVisible ? t("canvasCommands.hideLinks") : t("canvasCommands.showLinks")} aria-label={linksVisible ? t("canvasCommands.hideLinks") : t("canvasCommands.showLinks")} onClick={() => updateEditorPrefs({ linkRenderMode: linkRenderMode === "hidden" ? "spline" : "hidden" })}>{linksVisible ? <Eye size={16} /> : <EyeOff size={16} />}</button> : null,
+    mainToolbarActionVisible("minimap") ? <IconButton key="minimap" className="icon-button" active={minimapVisible} title={minimapVisible ? t("canvasCommands.hideMinimap") : t("canvasCommands.showMinimap")} aria-label={minimapVisible ? t("canvasCommands.hideMinimap") : t("canvasCommands.showMinimap")} onClick={() => updateEditorPrefs({ minimapVisible: !minimapVisible })}><MapIcon size={16} /></IconButton> : null,
+    mainToolbarActionVisible("links") ? <IconButton key="links" className="icon-button" active={linksVisible} title={linksVisible ? t("canvasCommands.hideLinks") : t("canvasCommands.showLinks")} aria-label={linksVisible ? t("canvasCommands.hideLinks") : t("canvasCommands.showLinks")} onClick={() => updateEditorPrefs({ linkRenderMode: linkRenderMode === "hidden" ? "spline" : "hidden" })}>{linksVisible ? <Eye size={16} /> : <EyeOff size={16} />}</IconButton> : null,
     mainToolbarActionVisible("templateRegistry") ? promotedActionButton("templateRegistry") : null,
     mainToolbarActionVisible("prefsPanel") ? (
-      <button key="prefsPanel" className={editorSettingsOpen ? "icon-button active" : "icon-button"} title={t("toolbar.prefsPanel")} aria-label={t("toolbar.prefsPanel")} onClick={() => {
+      <IconButton key="prefsPanel" className="icon-button" active={editorSettingsOpen} title={t("toolbar.prefsPanel")} aria-label={t("toolbar.prefsPanel")} onClick={() => {
         setToolbarOverflowOpen(false);
         setTemplateRegistryOpen(false);
         setEditorSettingsOpen(!editorSettingsOpen);
         dispatchCanvasInteraction(editorSettingsOpen ? { type: "cancel" } : { type: "openMenu", menu: "settings" });
-      }}><Settings size={16} /></button>
+      }}><Settings size={16} /></IconButton>
     ) : null,
     mainToolbarActionVisible("overflow") ? (
-      <button key="overflow" className={toolbarOverflowOpen ? "icon-button active" : "icon-button"} title={t("toolbar.overflow")} aria-label={t("toolbar.overflow")} onClick={() => {
+      <IconButton key="overflow" className="icon-button" active={toolbarOverflowOpen} title={t("toolbar.overflow")} aria-label={t("toolbar.overflow")} onClick={() => {
         setEditorSettingsOpen(false);
         setTemplateRegistryOpen(false);
         setToolbarOverflowOpen(!toolbarOverflowOpen);
         dispatchCanvasInteraction(toolbarOverflowOpen ? { type: "cancel" } : { type: "openMenu", menu: "toolbar" });
-      }}><MoreHorizontal size={16} /></button>
+      }}><MoreHorizontal size={16} /></IconButton>
     ) : null
   ].filter(Boolean);
   const runToolbarItems = [
     mainToolbarActionVisible("run") ? (
-      <button key="run" className={isRuntimeActive ? "icon-button toolbar-run-main warning" : "icon-button toolbar-run-main"} title={isRuntimeActive ? t("toolbar.cancelRun") : t("toolbar.runGraph")} aria-label={isRuntimeActive ? t("toolbar.cancelRun") : t("toolbar.runGraph")} onClick={isRuntimeActive ? requestCancelRun : requestRun}>
+      <IconButton key="run" className={isRuntimeActive ? "icon-button toolbar-run-main warning" : "icon-button toolbar-run-main"} title={isRuntimeActive ? t("toolbar.cancelRun") : t("toolbar.runGraph")} aria-label={isRuntimeActive ? t("toolbar.cancelRun") : t("toolbar.runGraph")} onClick={isRuntimeActive ? requestCancelRun : requestRun}>
         {isRuntimeActive ? <Square size={16} /> : <Play size={18} />}
         <span>{isRuntimeActive ? t("toolbar.cancelRun") : t("toolbar.runGraph")}</span>
-      </button>
+      </IconButton>
     ) : null,
-    mainToolbarActionVisible("stepRun") ? <button key="stepRun" className="icon-button toolbar-run-step" title={isRuntimeActive ? t("toolbar.stepRuntime") : t("toolbar.stepRun")} aria-label={isRuntimeActive ? t("toolbar.stepRuntime") : t("toolbar.stepRun")} onClick={isRuntimeActive ? requestRuntimeStep : requestStepRun}><StepForward size={16} /></button> : null,
-    isRuntimeActive && mainToolbarActionVisible("stepRun") ? <button key="continueRuntime" className="icon-button toolbar-run-step" title={t("toolbar.continueRuntime")} aria-label={t("toolbar.continueRuntime")} onClick={requestRuntimeContinue}><Play size={16} /></button> : null
+    mainToolbarActionVisible("stepRun") ? <IconButton key="stepRun" className="icon-button toolbar-run-step" title={isRuntimeActive ? t("toolbar.stepRuntime") : t("toolbar.stepRun")} aria-label={isRuntimeActive ? t("toolbar.stepRuntime") : t("toolbar.stepRun")} onClick={isRuntimeActive ? requestRuntimeStep : requestStepRun}><StepForward size={16} /></IconButton> : null,
+    isRuntimeActive && mainToolbarActionVisible("stepRun") ? <IconButton key="continueRuntime" className="icon-button toolbar-run-step" title={t("toolbar.continueRuntime")} aria-label={t("toolbar.continueRuntime")} onClick={requestRuntimeContinue}><Play size={16} /></IconButton> : null
   ].filter(Boolean);
 
   return (
@@ -3148,7 +3170,17 @@ export function App(props: AppProps = {}): JSX.Element {
                 />
               ) : null}
               {minimapVisible ? (
-                <GraphMinimap graph={graph} templates={graphTemplates} canvasSize={canvasSize} categoryAccents={categoryAccents} t={t} onCenter={centerViewportOnGraphPoint} />
+                <GraphMinimap
+                  graph={graph}
+                  templates={graphTemplates}
+                  canvasSize={canvasSize}
+                  categoryAccents={categoryAccents}
+                  selectedNodeIds={selectedNodeIds}
+                  breakpointNodeIds={breakpointNodeIds}
+                  runtimeNodeStatus={runtimeNodeStatus}
+                  t={t}
+                  onCenter={centerViewportOnGraphPoint}
+                />
               ) : null}
               <RunActionBar
                 running={isRuntimeActive}
@@ -3652,35 +3684,32 @@ function ToolbarOverflowMenu(props: {
 }): JSX.Element {
   const actionGroups = groupToolbarOverflowActions(props.actions);
   return (
-    <div
+    <MenuSurface
       className="toolbar-overflow-menu"
-      role="menu"
-      aria-label={props.t("toolbarOverflow.actions")}
+      label={props.t("toolbarOverflow.actions")}
       onPointerDown={isolateOverlayEvent}
       onContextMenu={isolateOverlayContextMenu}
     >
       {actionGroups.map((group) => (
-        <div key={group.key} className={`toolbar-overflow-section ${group.tier}`}>
-          <span className="toolbar-overflow-section-title">{group.section}</span>
+        <MenuSection key={group.key} className={`toolbar-overflow-section ${group.tier}`} title={group.section}>
           {group.actions.map((action) => (
-            <button
+            <MenuActionButton
               key={action.id}
               type="button"
-              role="menuitem"
               disabled={action.disabled}
               title={action.title}
+              icon={action.icon}
               onClick={() => {
                 action.run();
                 props.onClose();
               }}
             >
-              {action.icon}
-              <span>{action.title}</span>
-            </button>
+              {action.title}
+            </MenuActionButton>
           ))}
-        </div>
+        </MenuSection>
       ))}
-    </div>
+    </MenuSurface>
   );
 }
 
@@ -3755,44 +3784,39 @@ function TemplateRegistryPanel(props: {
   }, [activePackageId, activeTemplateId, visibleTemplates]);
 
   return (
-    <div
-      className="template-registry-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          props.onClose();
-        }
-      }}
-    >
-      <section
+    <DialogBackdrop className="template-registry-backdrop" onDismiss={props.onClose}>
+      <DialogFrame
         className="template-registry"
-        role="dialog"
-        aria-label={props.t("templateRegistry.label")}
+        label={props.t("templateRegistry.label")}
         onPointerDown={isolateOverlayEvent}
         onWheel={isolateOverlayEvent}
         onContextMenu={isolateOverlayContextMenu}
       >
-        <header className="template-registry-title">
-          <PackageIcon size={16} />
-          <strong>{props.t("templateRegistry.title")}</strong>
-          <button type="button" title={props.t("templateRegistry.close")} onClick={props.onClose}>
-            <XCircle size={14} />
-          </button>
-        </header>
-        <label className="template-registry-search">
-          <Search size={15} />
-          <input value={query} placeholder={props.t("templateRegistry.searchPlaceholder")} onChange={(event) => setQuery(event.currentTarget.value)} />
-        </label>
+        <DialogHeader
+          className="template-registry-title"
+          icon={<PackageIcon size={16} />}
+          title={props.t("templateRegistry.title")}
+          action={
+            <IconButton type="button" className="template-registry-close" title={props.t("templateRegistry.close")} onClick={props.onClose}>
+              <XCircle size={14} />
+            </IconButton>
+          }
+        />
+        <SearchBox
+          className="template-registry-search"
+          icon={<Search size={15} />}
+          value={query}
+          placeholder={props.t("templateRegistry.searchPlaceholder")}
+          onChange={(event) => setQuery(event.currentTarget.value)}
+        />
         <div className="template-registry-grid">
           <div className="template-registry-packages" aria-label={props.t("templateRegistry.packages")}>
             {packages.map((summary) => (
-              <button
+              <CommandButton
                 key={summary.id}
                 type="button"
-                className={[
-                  summary.id === activePackageId ? "active" : "",
-                  props.disabledPackageIds.has(summary.id) ? "disabled" : ""
-                ].filter(Boolean).join(" ")}
+                active={summary.id === activePackageId}
+                className={props.disabledPackageIds.has(summary.id) ? "disabled" : undefined}
                 title={props.t("templateRegistry.inspectPackage", { name: summary.name })}
                 onClick={() => {
                   setActivePackageId(summary.id);
@@ -3801,7 +3825,7 @@ function TemplateRegistryPanel(props: {
               >
                 <span>{summary.name}</span>
                 <small>{props.disabledPackageIds.has(summary.id) ? props.t("templateRegistry.off") : summary.templateCount || summary.sourceGlobs.length ? summary.templateCount || props.t("templateRegistry.sourceCountShort", { count: summary.sourceGlobs.length }) : ""}</small>
-              </button>
+              </CommandButton>
             ))}
           </div>
           <div className="template-registry-list" aria-label={props.t("templateRegistry.templates")}>
@@ -3809,16 +3833,16 @@ function TemplateRegistryPanel(props: {
               (() => {
                 const templateText = displayTemplateText(template, props.locale, props.nodeLabelMode);
                 return (
-              <button
+              <CommandButton
                 key={template.id}
                 type="button"
-                className={template.id === activeTemplate?.id ? "active" : ""}
+                active={template.id === activeTemplate?.id}
                 title={props.t("templateRegistry.inspectTemplate", { name: templateText.name })}
                 onClick={() => setActiveTemplateId(template.id)}
               >
                 <strong>{templateText.name}</strong>
                 <span>{templateText.creationPath}</span>
-              </button>
+              </CommandButton>
                 );
               })()
             )) : <span className="template-registry-empty">{props.t("templateRegistry.noTemplates")}</span>}
@@ -3835,26 +3859,26 @@ function TemplateRegistryPanel(props: {
                   </div>
                   <div className="template-registry-actions">
                     {activePackage && activePackage.id !== "all" ? (
-                      <button
+                      <IconButton
                         type="button"
-                        className={activePackageEnabled ? "active" : ""}
+                        active={activePackageEnabled}
                         title={activePackageEnabled ? props.t("templateRegistry.disablePackage", { name: activePackage.name }) : props.t("templateRegistry.enablePackage", { name: activePackage.name })}
                         onClick={() => props.onTogglePackageEnabled(activePackage.id)}
                       >
                       <Power size={14} />
-                      </button>
+                      </IconButton>
                     ) : null}
-                    <button
+                    <IconButton
                       type="button"
-                      className={props.favoriteTemplateIds.has(activeTemplate.id) ? "active" : ""}
+                      active={props.favoriteTemplateIds.has(activeTemplate.id)}
                       title={props.favoriteTemplateIds.has(activeTemplate.id) ? props.t("templateRegistry.unfavoriteTemplate", { name: activeTemplateText.name }) : props.t("templateRegistry.favoriteTemplate", { name: activeTemplateText.name })}
                       onClick={() => props.onToggleFavorite(activeTemplate.id)}
                     >
                       <Star size={14} />
-                    </button>
-                    <button type="button" title={activeTemplateAvailable ? props.t("templateRegistry.createTemplateNode", { name: activeTemplateText.name }) : props.t("templateRegistry.templateDisabled", { name: activeTemplateText.name })} disabled={props.readOnly || !activeTemplateAvailable} onClick={() => props.onCreateTemplate(activeTemplate)}>
+                    </IconButton>
+                    <IconButton type="button" title={activeTemplateAvailable ? props.t("templateRegistry.createTemplateNode", { name: activeTemplateText.name }) : props.t("templateRegistry.templateDisabled", { name: activeTemplateText.name })} disabled={props.readOnly || !activeTemplateAvailable} onClick={() => props.onCreateTemplate(activeTemplate)}>
                       <Plus size={14} />
-                    </button>
+                    </IconButton>
                   </div>
                 </div>
                 <p>{activeTemplateText.description}</p>
@@ -3890,8 +3914,8 @@ function TemplateRegistryPanel(props: {
             ) : <span className="template-registry-empty">{props.t("templateRegistry.noTemplateSelected")}</span>}
           </div>
         </div>
-      </section>
-    </div>
+      </DialogFrame>
+    </DialogBackdrop>
   );
 }
 
@@ -3932,71 +3956,65 @@ function NodeFindDialog(props: {
   };
 
   return (
-    <div
-      className="node-find-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          props.onClose();
-        }
-      }}
-    >
-      <section
+    <DialogBackdrop className="node-find-backdrop" onDismiss={props.onClose}>
+      <DialogFrame
         className="node-find-dialog"
-        role="dialog"
-        aria-label={props.t("nodeFind.title")}
+        label={props.t("nodeFind.title")}
         onPointerDown={isolateOverlayEvent}
         onWheel={isolateOverlayEvent}
         onContextMenu={isolateOverlayContextMenu}
       >
-        <header className="node-find-title">
-          <Search size={16} />
-          <strong>{props.t("nodeFind.title")}</strong>
-          <button type="button" title={props.t("nodeFind.close")} onClick={props.onClose}>
-            <XCircle size={14} />
-          </button>
-        </header>
-        <label className="node-find-search">
-          <Search size={15} />
-          <input
-            ref={props.inputRef}
-            value={props.query}
-            placeholder={props.t("nodeFind.placeholder")}
-            onChange={(event) => props.onQueryChange(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                focusFirst();
-              } else if (event.key === "Escape") {
-                props.onClose();
-              }
-            }}
-          />
-        </label>
+        <DialogHeader
+          className="node-find-title"
+          icon={<Search size={16} />}
+          title={props.t("nodeFind.title")}
+          action={
+            <IconButton type="button" className="node-find-close" title={props.t("nodeFind.close")} onClick={props.onClose}>
+              <XCircle size={14} />
+            </IconButton>
+          }
+        />
+        <SearchBox
+          ref={props.inputRef}
+          className="node-find-search"
+          icon={<Search size={15} />}
+          value={props.query}
+          placeholder={props.t("nodeFind.placeholder")}
+          onChange={(event) => props.onQueryChange(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              focusFirst();
+            } else if (event.key === "Escape") {
+              props.onClose();
+            }
+          }}
+        />
         <div className="node-find-results">
           {hasQuery ? (
             <>
               {props.graphResults.map(({ node, template, matchLabel }) => (
-                <button
+                <ListActionButton
                   key={node.id}
                   type="button"
-                  className={props.selectedNodeIds.has(node.id) ? "node-find-item active" : "node-find-item"}
+                  className="node-find-item"
+                  active={props.selectedNodeIds.has(node.id)}
+                  trailing={<small>{matchLabel ?? node.id}</small>}
                   onClick={() => props.onFocusNode(node.id)}
                 >
-                  <span>{templateName(template, node.templateId)}</span>
-                  <small>{matchLabel ?? node.id}</small>
-                </button>
+                  {templateName(template, node.templateId)}
+                </ListActionButton>
               ))}
               {props.solutionResults.length ? <div className="node-find-group-title">{props.t("sidebar.solutionMatches")}</div> : null}
               {props.solutionResults.map((entry) => (
-                <button
+                <ListActionButton
                   key={`${entry.graphPath}:${entry.nodeId ?? "graph"}`}
                   type="button"
                   className="node-find-item"
+                  trailing={<small>{entry.matchLabel ?? `${entry.projectName} / ${entry.graphKind}`}</small>}
                   onClick={() => props.onOpenGraph(entry.graphPath)}
                 >
-                  <span>{entry.nodeId ? templateName(entry.template, entry.nodeId) : entry.graphName}</span>
-                  <small>{entry.matchLabel ?? `${entry.projectName} / ${entry.graphKind}`}</small>
-                </button>
+                  {entry.nodeId ? templateName(entry.template, entry.nodeId) : entry.graphName}
+                </ListActionButton>
               ))}
               {!props.graphResults.length && !props.solutionResults.length ? <span className="node-find-empty">{props.t("sidebar.noNodes")}</span> : null}
             </>
@@ -4004,8 +4022,8 @@ function NodeFindDialog(props: {
             <span className="node-find-empty">{props.t("nodeFind.empty")}</span>
           )}
         </div>
-      </section>
-    </div>
+      </DialogFrame>
+    </DialogBackdrop>
   );
 }
 
@@ -4019,14 +4037,14 @@ function TemplateRegistrySourceDetails(props: { summary: TemplateRegistryPackage
         </div>
         {props.canToggle ? (
           <div className="template-registry-actions">
-            <button
+            <IconButton
               type="button"
-              className={props.enabled ? "active" : ""}
+              active={props.enabled}
               title={props.enabled ? props.t("templateRegistry.disablePackage", { name: props.summary.name }) : props.t("templateRegistry.enablePackage", { name: props.summary.name })}
               onClick={props.onToggleEnabled}
             >
               <Power size={14} />
-            </button>
+            </IconButton>
           </div>
         ) : null}
       </div>
@@ -4125,194 +4143,181 @@ function EditorSettingsPanel(props: {
   };
 
   return (
-    <div
+    <DialogFrame
       className="editor-settings-panel"
-      role="dialog"
-      aria-label={props.t("settings.panel")}
+      label={props.t("settings.panel")}
       onPointerDown={isolateOverlayEvent}
       onWheel={isolateOverlayEvent}
       onContextMenu={isolateOverlayContextMenu}
     >
-      <div className="editor-settings-title">
-        <strong>{props.t("settings.panel")}</strong>
-        <button type="button" title={props.t("settings.close")} onClick={props.onClose}>
-          <XCircle size={14} />
-        </button>
-      </div>
-      <div className="editor-settings-tabs" role="tablist" aria-label={props.t("settings.pages")}>
+      <DialogHeader
+        className="editor-settings-title"
+        title={props.t("settings.panel")}
+        action={
+          <IconButton type="button" title={props.t("settings.close")} onClick={props.onClose}>
+            <XCircle size={14} />
+          </IconButton>
+        }
+      />
+      <TabsList className="editor-settings-tabs" label={props.t("settings.pages")}>
         {(["general", "mainToolbar", "shortcuts"] as const).map((pageId) => (
-          <button
+          <TabsTrigger
             key={pageId}
             type="button"
-            role="tab"
-            aria-selected={activePage === pageId}
-            className={activePage === pageId ? "active" : ""}
+            active={activePage === pageId}
             onClick={() => setActivePage(pageId)}
           >
             {props.t(`settings.page.${pageId}`)}
-          </button>
+          </TabsTrigger>
         ))}
-      </div>
+      </TabsList>
       <div className="editor-settings-page">
         {activePage === "general" ? (
           <>
-            <label className="setting-toggle">
-              <input
-                type="checkbox"
-                checked={props.prefs.gridVisible}
-                onChange={(event) => props.onChange({ gridVisible: event.currentTarget.checked })}
-              />
-              <span>{props.t("settings.grid")}</span>
-            </label>
-            <label className="setting-toggle">
-              <input
-                type="checkbox"
-                checked={props.prefs.snapToGrid}
-                onChange={(event) => props.onChange({ snapToGrid: event.currentTarget.checked })}
-              />
-              <span>{props.t("settings.snapToGrid")}</span>
-            </label>
-            <label className="setting-toggle">
-              <input
-                type="checkbox"
-                checked={props.prefs.minimapVisible}
-                onChange={(event) => props.onChange({ minimapVisible: event.currentTarget.checked })}
-              />
-              <span>{props.t("settings.minimap")}</span>
-            </label>
+            <CheckboxRow className="setting-toggle" checked={props.prefs.gridVisible} onCheckedChange={(checked) => props.onChange({ gridVisible: checked })}>
+              {props.t("settings.grid")}
+            </CheckboxRow>
+            <CheckboxRow className="setting-toggle" checked={props.prefs.snapToGrid} onCheckedChange={(checked) => props.onChange({ snapToGrid: checked })}>
+              {props.t("settings.snapToGrid")}
+            </CheckboxRow>
+            <CheckboxRow className="setting-toggle" checked={props.prefs.minimapVisible} onCheckedChange={(checked) => props.onChange({ minimapVisible: checked })}>
+              {props.t("settings.minimap")}
+            </CheckboxRow>
             <div className="setting-row">
               <span>{props.t("settings.links")}</span>
-              <div className="setting-segmented" aria-label={props.t("settings.linkRenderMode")}>
+              <SegmentedControl className="setting-segmented" label={props.t("settings.linkRenderMode")}>
                 {linkRenderModes.map((mode) => (
-                  <button
+                  <SegmentedButton
                     key={mode}
                     type="button"
-                    className={props.prefs.linkRenderMode === mode ? "active" : ""}
+                    active={props.prefs.linkRenderMode === mode}
                     title={props.t("settings.setLinkMode", { mode })}
                     onClick={() => props.onChange({ linkRenderMode: mode })}
                   >
                     {mode}
-                  </button>
+                  </SegmentedButton>
                 ))}
-              </div>
+              </SegmentedControl>
             </div>
             <div className="setting-row">
               <span>{props.t("settings.actionbar")}</span>
-              <div className="setting-segmented" aria-label={props.t("settings.actionbarPlacement")}>
-                <button
+              <SegmentedControl className="setting-segmented" label={props.t("settings.actionbarPlacement")}>
+                <SegmentedButton
                   type="button"
-                  className={props.prefs.actionBarPlacement === "bottom" ? "active" : ""}
+                  active={props.prefs.actionBarPlacement === "bottom"}
                   title={props.t("settings.placeActionbarBottom")}
                   onClick={() => props.onChange({ actionBarPlacement: "bottom" })}
                 >
                   {props.t("settings.actionbarBottom")}
-                </button>
-                <button
+                </SegmentedButton>
+                <SegmentedButton
                   type="button"
-                  className={props.prefs.actionBarPlacement === "top" ? "active" : ""}
+                  active={props.prefs.actionBarPlacement === "top"}
                   title={props.t("settings.placeActionbarTop")}
                   onClick={() => props.onChange({ actionBarPlacement: "top" })}
                 >
                   {props.t("settings.actionbarTop")}
-                </button>
-              </div>
+                </SegmentedButton>
+              </SegmentedControl>
             </div>
             <div className="setting-row">
               <span>{props.t("settings.toolbar")}</span>
-              <div className="setting-segmented" aria-label={props.t("settings.toolbarAlignment")}>
+              <SegmentedControl className="setting-segmented" label={props.t("settings.toolbarAlignment")}>
                 {toolbarAlignments.map((alignment) => (
-                  <button
+                  <SegmentedButton
                     key={alignment}
                     type="button"
-                    className={props.prefs.toolbarAlignment === alignment ? "active" : ""}
+                    active={props.prefs.toolbarAlignment === alignment}
                     title={props.t(`settings.placeToolbar${toolbarAlignmentKeySuffix(alignment)}`)}
                     onClick={() => props.onChange({ toolbarAlignment: alignment })}
                   >
                     {props.t(`settings.toolbar${toolbarAlignmentKeySuffix(alignment)}`)}
-                  </button>
+                  </SegmentedButton>
                 ))}
-              </div>
+              </SegmentedControl>
             </div>
             <div className="setting-row">
               <span>{props.t("settings.nodeLabels")}</span>
-              <div className="setting-segmented" aria-label={props.t("settings.nodeLabelMode")}>
+              <SegmentedControl className="setting-segmented" label={props.t("settings.nodeLabelMode")}>
                 {nodeLabelModes.map((mode) => (
-                  <button
+                  <SegmentedButton
                     key={mode}
                     type="button"
-                    className={props.prefs.nodeLabelMode === mode ? "active" : ""}
+                    active={props.prefs.nodeLabelMode === mode}
                     title={props.t("settings.setNodeLabelMode", { mode: props.t(`settings.nodeLabelMode.${mode}`) })}
                     onClick={() => props.onChange({ nodeLabelMode: mode })}
                   >
                     {props.t(`settings.nodeLabelMode.${mode}`)}
-                  </button>
+                  </SegmentedButton>
                 ))}
-              </div>
+              </SegmentedControl>
             </div>
             <div className="setting-row">
               <span>{props.t("settings.language")}</span>
-              <div className="setting-segmented" aria-label={props.t("settings.languageSelector")}>
+              <SegmentedControl className="setting-segmented" label={props.t("settings.languageSelector")}>
                 {supportedLocales.map((locale) => (
-                  <button
+                  <SegmentedButton
                     key={locale}
                     type="button"
-                    className={props.prefs.language === locale ? "active" : ""}
+                    active={props.prefs.language === locale}
                     onClick={() => props.onChange({ language: locale })}
                   >
                     {props.t(`settings.language.${locale}`)}
-                  </button>
+                  </SegmentedButton>
                 ))}
-              </div>
+              </SegmentedControl>
             </div>
             <div className="setting-row">
               <span>{props.t("settings.theme")}</span>
-              <div className="setting-segmented" aria-label={props.t("settings.themeSelector")}>
+              <SegmentedControl className="setting-segmented" label={props.t("settings.themeSelector")}>
                 {editorThemes.map((theme) => (
-                  <button
+                  <SegmentedButton
                     key={theme.id}
                     type="button"
-                    className={props.prefs.theme === theme.id ? "active" : ""}
+                    active={props.prefs.theme === theme.id}
                     onClick={() => props.onChange({ theme: theme.id })}
                   >
                     {props.t(theme.labelKey)}
-                  </button>
+                  </SegmentedButton>
                 ))}
                 {props.prefs.customTheme ? (
-                  <button
+                  <SegmentedButton
                     type="button"
-                    className={props.prefs.theme === "custom" ? "active" : ""}
+                    active={props.prefs.theme === "custom"}
                     title={props.t("settings.theme.customTitle", { name: props.prefs.customTheme.name })}
                     onClick={() => props.onChange({ theme: "custom" })}
                   >
                     {props.prefs.customTheme.name || props.t("settings.theme.custom")}
-                  </button>
+                  </SegmentedButton>
                 ) : null}
-              </div>
+              </SegmentedControl>
             </div>
             <div className="setting-row">
               <span>{props.t("settings.themeConfig")}</span>
-              <div className="setting-segmented" aria-label={props.t("settings.themeConfig")}>
-                <button type="button" title={props.t("settings.importThemeTitle")} onClick={importTheme}>
+              <SegmentedControl className="setting-segmented" label={props.t("settings.themeConfig")}>
+                <SegmentedButton type="button" title={props.t("settings.importThemeTitle")} onClick={importTheme}>
                   {props.t("common.import")}
-                </button>
-                <button type="button" title={props.t("settings.exportThemeTitle")} onClick={() => void exportTheme()} disabled={!props.prefs.customTheme}>
+                </SegmentedButton>
+                <SegmentedButton type="button" title={props.t("settings.exportThemeTitle")} onClick={() => void exportTheme()} disabled={!props.prefs.customTheme}>
                   {props.t("common.export")}
-                </button>
-              </div>
+                </SegmentedButton>
+              </SegmentedControl>
             </div>
           </>
         ) : null}
         {activePage === "mainToolbar" ? (
           <div className="setting-toolbar-actions" aria-label={props.t("settings.mainToolbarActions")}>
             {props.toolbarActions.map((actionId) => (
-              <label key={actionId} className="setting-toggle compact" data-toolbar-action={actionId}>
-                <input
-                  type="checkbox"
-                  checked={props.prefs.mainToolbarActions.includes(actionId)}
-                  onChange={(event) => updateMainToolbarAction(actionId, event.currentTarget.checked)}
-                />
-                <span>{props.t(`settings.mainToolbarAction.${actionId}`)}</span>
-              </label>
+              <CheckboxRow
+                key={actionId}
+                className="setting-toggle"
+                compact={true}
+                data-toolbar-action={actionId}
+                checked={props.prefs.mainToolbarActions.includes(actionId)}
+                onCheckedChange={(checked) => updateMainToolbarAction(actionId, checked)}
+              >
+                {props.t(`settings.mainToolbarAction.${actionId}`)}
+              </CheckboxRow>
             ))}
           </div>
         ) : null}
@@ -4328,16 +4333,16 @@ function EditorSettingsPanel(props: {
                     <strong>{command.title}</strong>
                     <small>{command.category}</small>
                   </span>
-                  <input
+                  <TextInput
                     value={customShortcut}
                     placeholder={defaultShortcut ? shortcutLabel(defaultShortcut) : props.t("settings.unassigned")}
                     aria-label={props.t("settings.shortcutFor", { title: command.title })}
                     onChange={(event) => updateShortcut(command.id, event.currentTarget.value)}
                   />
                   {customShortcut ? (
-                    <button type="button" title={props.t("settings.resetShortcutFor", { title: command.title })} onClick={() => updateShortcut(command.id, "")}>
+                    <CommandButton type="button" title={props.t("settings.resetShortcutFor", { title: command.title })} onClick={() => updateShortcut(command.id, "")}>
                       {props.t("common.reset")}
-                    </button>
+                    </CommandButton>
                   ) : null}
                   {conflicts.length ? <small className="setting-shortcut-conflict">{props.t("settings.conflictsWith", { titles: conflicts.join(", ") })}</small> : null}
                 </label>
@@ -4347,7 +4352,7 @@ function EditorSettingsPanel(props: {
         ) : null}
       </div>
       <div className="editor-settings-actions">
-        <button
+        <CommandButton
           type="button"
           title={props.t("settings.exportTitle")}
           onClick={() => {
@@ -4355,19 +4360,19 @@ function EditorSettingsPanel(props: {
           }}
         >
           {props.t("common.export")}
-        </button>
-        <button type="button" title={props.t("settings.importTitle")} onClick={importSettings}>
+        </CommandButton>
+        <CommandButton type="button" title={props.t("settings.importTitle")} onClick={importSettings}>
           {props.t("common.import")}
-        </button>
-        <button type="button" title={props.t("settings.resetTitle")} onClick={() => {
+        </CommandButton>
+        <CommandButton type="button" title={props.t("settings.resetTitle")} onClick={() => {
           props.onReset();
           setTransferStatus("idle");
         }}>
           {props.t("common.reset")}
-        </button>
+        </CommandButton>
       </div>
       {transferStatus !== "idle" ? <span className={`editor-settings-status ${transferStatus}`}>{editorSettingsTransferStatusText(transferStatus, props.t)}</span> : null}
-    </div>
+    </DialogFrame>
   );
 }
 
@@ -4437,45 +4442,46 @@ function SelectionToolbox(props: {
       onWheel={isolateOverlayEvent}
       onContextMenu={isolateOverlayContextMenu}
     >
-      <button type="button" title={props.t("selection.frame")} onClick={props.onFrame}>
+      <IconButton type="button" title={props.t("selection.frame")} onClick={props.onFrame}>
         <Focus size={14} />
-      </button>
-      <button type="button" title={props.t("selection.showInfo")} onClick={props.onShowInfo}>
+      </IconButton>
+      <IconButton type="button" title={props.t("selection.showInfo")} onClick={props.onShowInfo}>
         <Info size={14} />
-      </button>
-      <button type="button" title={props.t("selection.createComment")} onClick={props.onCreateComment} disabled={props.readOnly}>
+      </IconButton>
+      <IconButton type="button" title={props.t("selection.createComment")} onClick={props.onCreateComment} disabled={props.readOnly}>
         <StickyNote size={14} />
-      </button>
-      <button type="button" title={props.t("selection.duplicate")} onClick={props.onDuplicate} disabled={!props.canDuplicate}>
+      </IconButton>
+      <IconButton type="button" title={props.t("selection.duplicate")} onClick={props.onDuplicate} disabled={!props.canDuplicate}>
         <Copy size={14} />
-      </button>
-      <button type="button" title={props.t("selection.collapseMacro")} onClick={props.onCollapseToMacro} disabled={!props.canCollapseToMacro}>
+      </IconButton>
+      <IconButton type="button" title={props.t("selection.collapseMacro")} onClick={props.onCollapseToMacro} disabled={!props.canCollapseToMacro}>
         <PackageIcon size={14} />
-      </button>
-      <button type="button" title={props.t("selection.collapseFunction")} onClick={props.onCollapseToFunction} disabled={!props.canCollapseToFunction}>
+      </IconButton>
+      <IconButton type="button" title={props.t("selection.collapseFunction")} onClick={props.onCollapseToFunction} disabled={!props.canCollapseToFunction}>
         <GitBranch size={14} />
-      </button>
-      <button
+      </IconButton>
+      <IconButton
         type="button"
-        className={props.selectionDisabled ? "active" : ""}
+        active={props.selectionDisabled}
         title={props.selectionDisabled ? props.t("selection.enableNodes") : props.t("selection.disableNodes")}
         onClick={props.onToggleDisable}
         disabled={!props.canToggleDisable}
       >
         <Power size={14} />
-      </button>
-      <button type="button" title={props.t("selection.breakLinks")} onClick={props.onBreakLinks} disabled={props.readOnly || !props.incidentLinkCount}>
+      </IconButton>
+      <IconButton type="button" title={props.t("selection.breakLinks")} onClick={props.onBreakLinks} disabled={props.readOnly || !props.incidentLinkCount}>
         <Unlink size={14} />
-      </button>
-      <button
+      </IconButton>
+      <IconButton
         type="button"
-        className={props.hasBreakpoint ? "active danger" : ""}
+        active={props.hasBreakpoint}
+        className={props.hasBreakpoint ? "danger" : undefined}
         title={props.hasBreakpoint ? props.t("selection.clearBreakpoint") : props.t("selection.addBreakpoint")}
         onClick={props.onToggleBreakpoint}
         disabled={!props.canToggleBreakpoint}
       >
         <CircleDot size={14} />
-      </button>
+      </IconButton>
       {props.commentCount ? (
         <CommentColorControls
           colors={commentColorPalette.slice(0, 4)}
@@ -4487,9 +4493,9 @@ function SelectionToolbox(props: {
           onChange={props.onCommentColor}
         />
       ) : null}
-      <button type="button" title={props.t("selection.delete")} onClick={props.onDelete} disabled={props.readOnly}>
+      <IconButton type="button" title={props.t("selection.delete")} onClick={props.onDelete} disabled={props.readOnly}>
         <Trash2 size={14} />
-      </button>
+      </IconButton>
     </div>
   );
 }
@@ -4509,20 +4515,22 @@ function CommentColorControls(props: {
       {props.colors.map((color) => {
         const normalizedColor = normalizeColorInput(color);
         return (
-          <button
+          <IconButton
             key={normalizedColor}
             type="button"
-            className={normalizedColor === activeColor ? "comment-swatch active" : "comment-swatch"}
+            active={normalizedColor === activeColor}
+            className="comment-swatch"
             style={{ background: normalizedColor, "--comment-color": normalizedColor } as CSSProperties}
             title={props.t(props.titleKey, { color: normalizedColor })}
             disabled={props.disabled}
             onClick={() => props.onChange(normalizedColor)}
-          />
+          >
+            <span aria-hidden="true" />
+          </IconButton>
         );
       })}
       <label className="comment-swatch comment-swatch-custom" title={props.t("comment.customColor")} style={{ "--comment-color": activeColor } as CSSProperties}>
-        <input
-          type="color"
+        <ColorInput
           value={activeColor}
           aria-label={props.t("comment.customColor")}
           disabled={props.disabled}
@@ -4539,6 +4547,9 @@ function GraphMinimap(props: {
   templates: BlueprintNodeTemplate[];
   canvasSize: { width: number; height: number };
   categoryAccents: CategoryAccentMap;
+  selectedNodeIds: Set<string>;
+  breakpointNodeIds: Set<string>;
+  runtimeNodeStatus: Map<string, RuntimeTraceEvent>;
   t: Translator;
   onCenter(point: Point): void;
 }): JSX.Element | null {
@@ -4603,10 +4614,17 @@ function GraphMinimap(props: {
         {props.graph.nodes.map((node) => {
           const template = getEffectiveTemplateForNode(props.graph, props.templates, node);
           const rect = projectMinimapRect(nodeBounds(props.graph, props.templates, node), bounds, scale, offset, width, height);
+          const runtimeStatus = props.runtimeNodeStatus.get(node.id)?.status;
           return (
             <rect
               key={node.id}
-              className={isRoutingHubTemplate(template) ? "minimap-node minimap-node-hub" : "minimap-node"}
+              className={minimapNodeClassName({
+                hub: isRoutingHubTemplate(template),
+                selected: props.selectedNodeIds.has(node.id),
+                disabled: node.displayOverrides?.disabled === true,
+                breakpoint: props.breakpointNodeIds.has(node.id),
+                runtimeStatus
+              })}
               x={rect.x}
               y={rect.y}
               width={rect.width}
@@ -4619,6 +4637,23 @@ function GraphMinimap(props: {
       </svg>
     </button>
   );
+}
+
+function minimapNodeClassName(state: {
+  hub: boolean;
+  selected: boolean;
+  disabled: boolean;
+  breakpoint: boolean;
+  runtimeStatus?: RuntimeTraceEvent["status"];
+}): string {
+  return [
+    "minimap-node",
+    state.hub ? "minimap-node-hub" : "",
+    state.selected ? "selected" : "",
+    state.disabled ? "disabled" : "",
+    state.breakpoint ? "breakpoint" : "",
+    state.runtimeStatus ? `runtime-${state.runtimeStatus}` : ""
+  ].filter(Boolean).join(" ");
 }
 
 function Port(props: {
@@ -4712,13 +4747,13 @@ function WireContextMenu(props: {
       onContextMenu={isolateOverlayContextMenu}
     >
       <div className="wire-menu-title">{label}</div>
-      <button onClick={props.onRoute} disabled={props.readOnly || !props.link} title={props.t("contextMenu.insertRoutingHubTitle")}>
+      <CommandButton type="button" onClick={props.onRoute} disabled={props.readOnly || !props.link} title={props.t("contextMenu.insertRoutingHubTitle")}>
         <Route size={14} /> {props.t("contextMenu.insertRoutingHub")}
-      </button>
-      <button onClick={props.onDelete} disabled={props.readOnly || !props.link} title={props.t("contextMenu.deleteWireTitle")}>
+      </CommandButton>
+      <CommandButton type="button" onClick={props.onDelete} disabled={props.readOnly || !props.link} title={props.t("contextMenu.deleteWireTitle")}>
         <XCircle size={14} /> {props.t("contextMenu.deleteWire")}
-      </button>
-      <button onClick={props.onClose} title={props.t("contextMenu.closeWireMenu")}>{props.t("common.close")}</button>
+      </CommandButton>
+      <CommandButton type="button" onClick={props.onClose} title={props.t("contextMenu.closeWireMenu")}>{props.t("common.close")}</CommandButton>
     </div>
   );
 }
@@ -4747,22 +4782,22 @@ function NodeContextMenu(props: {
       onContextMenu={isolateOverlayContextMenu}
     >
       <div className="node-menu-title">{label}</div>
-      <button onClick={props.onDuplicate} disabled={props.readOnly || !props.node} title={props.t("contextMenu.duplicateNodeSelectionTitle")}>
+      <CommandButton type="button" onClick={props.onDuplicate} disabled={props.readOnly || !props.node} title={props.t("contextMenu.duplicateNodeSelectionTitle")}>
         <Copy size={14} /> {props.t("contextMenu.duplicate")}
-      </button>
-      <button onClick={props.onDelete} disabled={props.readOnly || !props.node} title={props.t("contextMenu.deleteNodeSelectionTitle")}>
+      </CommandButton>
+      <CommandButton type="button" onClick={props.onDelete} disabled={props.readOnly || !props.node} title={props.t("contextMenu.deleteNodeSelectionTitle")}>
         <XCircle size={14} /> {props.t("contextMenu.delete")}
-      </button>
-      <button onClick={props.onBreakLinks} disabled={props.readOnly || !props.node || !props.linkCount} title={props.t("contextMenu.breakNodeSelectionLinksTitle")}>
+      </CommandButton>
+      <CommandButton type="button" onClick={props.onBreakLinks} disabled={props.readOnly || !props.node || !props.linkCount} title={props.t("contextMenu.breakNodeSelectionLinksTitle")}>
         <Unlink size={14} /> {props.t("contextMenu.breakLinks")}
-      </button>
-      <button onClick={props.onToggleBreakpoint} disabled={!props.node || props.nodeCount !== 1} title={props.t("contextMenu.toggleBreakpointTitle")}>
+      </CommandButton>
+      <CommandButton type="button" onClick={props.onToggleBreakpoint} disabled={!props.node || props.nodeCount !== 1} title={props.t("contextMenu.toggleBreakpointTitle")}>
         <CircleDot size={14} /> {props.hasBreakpoint ? props.t("contextMenu.clearBreakpoint") : props.t("contextMenu.addBreakpoint")}
-      </button>
-      <button onClick={props.onAddBookmark} disabled={props.readOnly || !props.node || props.nodeCount !== 1} title={props.t("contextMenu.addNodeBookmarkTitle")}>
+      </CommandButton>
+      <CommandButton type="button" onClick={props.onAddBookmark} disabled={props.readOnly || !props.node || props.nodeCount !== 1} title={props.t("contextMenu.addNodeBookmarkTitle")}>
         <BookmarkPlus size={14} /> {props.t("contextMenu.addBookmark")}
-      </button>
-      <button onClick={props.onClose} title={props.t("contextMenu.closeNodeMenu")}>{props.t("common.close")}</button>
+      </CommandButton>
+      <CommandButton type="button" onClick={props.onClose} title={props.t("contextMenu.closeNodeMenu")}>{props.t("common.close")}</CommandButton>
     </div>
   );
 }
@@ -4788,19 +4823,19 @@ function CommentContextMenu(props: {
       onContextMenu={isolateOverlayContextMenu}
     >
       <div className="comment-menu-title">{label}</div>
-      <button onClick={props.onFocus} disabled={!props.comment} title={props.t("contextMenu.focusCommentTitle")}>
+      <CommandButton type="button" onClick={props.onFocus} disabled={!props.comment} title={props.t("contextMenu.focusCommentTitle")}>
         <Focus size={14} /> {props.t("contextMenu.focusComment")}
-      </button>
-      <button onClick={props.onRewrap} disabled={props.readOnly || !props.comment || !canRewrap} title={props.t("contextMenu.rewrapNodesTitle")}>
+      </CommandButton>
+      <CommandButton type="button" onClick={props.onRewrap} disabled={props.readOnly || !props.comment || !canRewrap} title={props.t("contextMenu.rewrapNodesTitle")}>
         <StickyNote size={14} /> {props.t("contextMenu.rewrapNodes")}
-      </button>
-      <button onClick={props.onAddBookmark} disabled={props.readOnly || !props.comment} title={props.t("contextMenu.addCommentBookmarkTitle")}>
+      </CommandButton>
+      <CommandButton type="button" onClick={props.onAddBookmark} disabled={props.readOnly || !props.comment} title={props.t("contextMenu.addCommentBookmarkTitle")}>
         <BookmarkPlus size={14} /> {props.t("contextMenu.addBookmark")}
-      </button>
-      <button onClick={props.onDelete} disabled={props.readOnly || !props.comment} title={props.t("contextMenu.deleteCommentTitle")}>
+      </CommandButton>
+      <CommandButton type="button" onClick={props.onDelete} disabled={props.readOnly || !props.comment} title={props.t("contextMenu.deleteCommentTitle")}>
         <XCircle size={14} /> {props.t("contextMenu.deleteComment")}
-      </button>
-      <button onClick={props.onClose} title={props.t("contextMenu.closeCommentMenu")}>{props.t("common.close")}</button>
+      </CommandButton>
+      <CommandButton type="button" onClick={props.onClose} title={props.t("contextMenu.closeCommentMenu")}>{props.t("common.close")}</CommandButton>
     </div>
   );
 }
@@ -4824,10 +4859,10 @@ function PortContextMenu(props: {
       onContextMenu={isolateOverlayContextMenu}
     >
       <div className="port-menu-title">{label}</div>
-      <button onClick={props.onBreakLinks} disabled={props.readOnly || !props.port || !props.linkCount} title={props.t("contextMenu.breakPortLinksTitle")}>
+      <CommandButton type="button" onClick={props.onBreakLinks} disabled={props.readOnly || !props.port || !props.linkCount} title={props.t("contextMenu.breakPortLinksTitle")}>
         <XCircle size={14} /> {props.t("contextMenu.breakLinks")} {props.linkCount ? `(${props.linkCount})` : ""}
-      </button>
-      <button onClick={props.onClose} title={props.t("contextMenu.closePortMenu")}>{props.t("common.close")}</button>
+      </CommandButton>
+      <CommandButton type="button" onClick={props.onClose} title={props.t("contextMenu.closePortMenu")}>{props.t("common.close")}</CommandButton>
     </div>
   );
 }
@@ -4962,22 +4997,23 @@ function NodeCreationPanel(props: {
     >
       <div className="search-row">
         <Search size={15} />
-        <input autoFocus value={props.search} onChange={(event) => props.onSearch(event.target.value)} placeholder={props.t("nodeCreation.searchPlaceholder")} />
-        <button onClick={props.onClose}>Esc</button>
+        <TextInput autoFocus value={props.search} onChange={(event) => props.onSearch(event.target.value)} placeholder={props.t("nodeCreation.searchPlaceholder")} />
+        <CommandButton onClick={props.onClose}>Esc</CommandButton>
       </div>
       {props.sourcePort ? <PinCreationHint sourcePort={props.sourcePort} targetTemplate={activeCandidate} targetPort={activeCompatiblePort} t={props.t} locale={props.locale} nodeLabelMode={props.nodeLabelMode} /> : null}
       <div className="candidate-grid">
         <div className="candidate-column categories">
           {props.categories.map((category) => (
-            <button
+            <CommandButton
               key={category.id}
-              className={props.activeCategory === category.id ? "category-filter active" : "category-filter"}
+              className="category-filter"
+              active={props.activeCategory === category.id}
               title={props.t("nodeCreation.filterCategory", { category: category.name })}
               onClick={() => props.onCategoryChange(category.id)}
             >
               <span>{category.name}</span>
               <small>{category.count}</small>
-            </button>
+            </CommandButton>
           ))}
         </div>
         <div className="candidate-column templates">
@@ -4988,7 +5024,7 @@ function NodeCreationPanel(props: {
               const compatiblePortText = compatiblePort ? displayPortText(template, compatiblePort, props.locale, props.nodeLabelMode) : undefined;
               return (
                 <div key={template.id} className={index === props.activeIndex ? "candidate active" : "candidate"}>
-                  <button className="candidate-main" onMouseEnter={() => props.onActiveIndexChange(index)} onClick={() => props.onPick(template)}>
+                  <CommandButton className="candidate-main" onMouseEnter={() => props.onActiveIndexChange(index)} onClick={() => props.onPick(template)}>
                     <strong>{templateText.name}</strong>
                     <span>{templateText.creationPath}</span>
                     {compatiblePort ? (
@@ -4996,14 +5032,15 @@ function NodeCreationPanel(props: {
                         {props.t("nodeCreation.connectsTo", { port: compatiblePortText?.name ?? compatiblePort.name })}
                       </small>
                     ) : null}
-                  </button>
-                  <button
-                    className={props.favoriteTemplateIds.has(template.id) ? "favorite active" : "favorite"}
+                  </CommandButton>
+                  <IconButton
+                    className="favorite"
+                    active={props.favoriteTemplateIds.has(template.id)}
                     title={props.favoriteTemplateIds.has(template.id) ? props.t("nodeCreation.unfavoriteTemplate") : props.t("nodeCreation.favoriteTemplate")}
                     onClick={() => props.onToggleFavorite(template.id)}
                   >
                     <Star size={14} />
-                  </button>
+                  </IconButton>
                 </div>
               );
             })
@@ -5193,12 +5230,11 @@ function CommentInspector(props: {
         <h3>{props.t("inspector.comment")}</h3>
         <label className="field">
           <span>{props.t("inspector.title")}</span>
-          <input value={props.comment.title} disabled={props.readOnly} onChange={(event) => props.onTitleChange(props.comment, event.target.value)} />
+          <TextInput value={props.comment.title} disabled={props.readOnly} onChange={(event) => props.onTitleChange(props.comment, event.target.value)} />
         </label>
         <label className="field">
           <span>{props.t("inspector.width")}</span>
-          <input
-            type="number"
+          <NumberInput
             min={120}
             max={2400}
             value={props.comment.size.width}
@@ -5208,8 +5244,7 @@ function CommentInspector(props: {
         </label>
         <label className="field">
           <span>{props.t("inspector.height")}</span>
-          <input
-            type="number"
+          <NumberInput
             min={80}
             max={1800}
             value={props.comment.size.height}
@@ -5261,14 +5296,15 @@ function Inspector(props: {
       {props.issues.length ? (
         <div className="issue-list">
           {props.issues.map((issue) => (
-            <button
+            <CommandButton
               key={issueKey(issue)}
-              className={props.focusedIssueKey === issueKey(issue) ? `issue-item ${issue.severity} active` : `issue-item ${issue.severity}`}
+              active={props.focusedIssueKey === issueKey(issue)}
+              className={`issue-item ${issue.severity}`}
               onClick={() => props.onIssueFocus(issue)}
             >
               <span>{issue.message}</span>
               {diagnosticLocationText(issue) ? <small>{diagnosticLocationText(issue)}</small> : null}
-            </button>
+            </CommandButton>
           ))}
         </div>
       ) : null}
@@ -5378,14 +5414,14 @@ function RunConsole(props: {
     <div className="run-console" aria-label={props.t("runConsole.label")}>
       <div className="run-console-toolbar">
         <span>{props.t("runConsole.entries", { count: runConsoleEntryCount(props) })}</span>
-        <button type="button" title={props.t("runConsole.copyAll")} aria-label={props.t("runConsole.copyAll")} onClick={() => void copyConsole()}>
+        <CommandButton type="button" title={props.t("runConsole.copyAll")} aria-label={props.t("runConsole.copyAll")} onClick={() => void copyConsole()}>
           <Copy size={12} />
           <span>{copyStatus === "copied" ? props.t("common.copied") : copyStatus === "failed" ? props.t("common.copyFailed") : props.t("common.copy")}</span>
-        </button>
-        <button type="button" title={props.t("runtime.clearHistory")} aria-label={props.t("runtime.clearHistory")} onClick={props.onRuntimeHistoryClear}>
+        </CommandButton>
+        <CommandButton type="button" title={props.t("runtime.clearHistory")} aria-label={props.t("runtime.clearHistory")} onClick={props.onRuntimeHistoryClear}>
           <Trash2 size={12} />
           <span>{props.t("common.clear")}</span>
-        </button>
+        </CommandButton>
       </div>
       <div className="run-console-list" ref={listRef} role="log" aria-live="polite">
         {props.runtimeLiveRun ? (
@@ -5446,14 +5482,14 @@ function RunConsoleIssueRow(props: { issue: ValidationIssue; t: Translator; onIs
   return (
     <div className={`run-console-row ${props.issue.severity}`}>
       <span className="run-console-time">{formatConsoleTimestamp(Date.now())}</span>
-      <button type="button" className="run-console-main" onClick={() => props.onIssueFocus(props.issue)}>
+      <CommandButton type="button" className="run-console-main" onClick={() => props.onIssueFocus(props.issue)}>
         <strong>{props.issue.severity}</strong>
         <span>{props.issue.message}</span>
         {location ? <small>{location}</small> : null}
-      </button>
-      <button type="button" className="run-console-copy-row" title={copyTitle} aria-label={copyTitle} onClick={() => void copyIssue()}>
+      </CommandButton>
+      <IconButton type="button" className="run-console-copy-row" title={copyTitle} aria-label={copyTitle} onClick={() => void copyIssue()}>
         <Copy size={12} />
-      </button>
+      </IconButton>
     </div>
   );
 }
@@ -5510,20 +5546,20 @@ function RunConsoleHistoryEntry(props: {
     <div className={props.active ? "run-console-run active" : "run-console-run"}>
       <div className={props.entry.ok ? "run-console-run-head ok" : "run-console-run-head error"}>
         <span className="run-console-time">{formatConsoleTimestamp(props.entry.createdAt)}</span>
-        <button type="button" className="run-console-run-select" title={props.entry.text} onClick={() => props.onSelect(props.entry)}>
+        <CommandButton type="button" className="run-console-run-select" title={props.entry.text} onClick={() => props.onSelect(props.entry)}>
           <strong>{props.entry.label || runtimeOutputHeading(props.entry, props.t)}</strong>
           <small>{props.entry.durationMs}ms · {props.entry.traces.length} {props.t("runConsole.traces")}</small>
-        </button>
+        </CommandButton>
         <span className="run-console-actions">
-          <button type="button" title={props.t("runtime.renameRun", { index: props.index + 1 })} aria-label={props.t("runtime.renameRun", { index: props.index + 1 })} onClick={() => props.onRename(props.entry)}>
+          <IconButton type="button" title={props.t("runtime.renameRun", { index: props.index + 1 })} aria-label={props.t("runtime.renameRun", { index: props.index + 1 })} onClick={() => props.onRename(props.entry)}>
             <Pencil size={11} />
-          </button>
-          <button type="button" className={props.entry.pinned ? "active" : ""} title={props.entry.pinned ? props.t("runtime.unpinRun", { index: props.index + 1 }) : props.t("runtime.pinRun", { index: props.index + 1 })} aria-label={props.entry.pinned ? props.t("runtime.unpinRun", { index: props.index + 1 }) : props.t("runtime.pinRun", { index: props.index + 1 })} onClick={() => props.onPin(props.entry)}>
+          </IconButton>
+          <IconButton type="button" active={props.entry.pinned} title={props.entry.pinned ? props.t("runtime.unpinRun", { index: props.index + 1 }) : props.t("runtime.pinRun", { index: props.index + 1 })} aria-label={props.entry.pinned ? props.t("runtime.unpinRun", { index: props.index + 1 }) : props.t("runtime.pinRun", { index: props.index + 1 })} onClick={() => props.onPin(props.entry)}>
             <Pin size={11} />
-          </button>
-          <button type="button" title={props.t("runtime.deleteRun", { index: props.index + 1 })} aria-label={props.t("runtime.deleteRun", { index: props.index + 1 })} onClick={() => props.onDelete(props.entry)}>
+          </IconButton>
+          <IconButton type="button" title={props.t("runtime.deleteRun", { index: props.index + 1 })} aria-label={props.t("runtime.deleteRun", { index: props.index + 1 })} onClick={() => props.onDelete(props.entry)}>
             <Trash2 size={11} />
-          </button>
+          </IconButton>
         </span>
       </div>
       {outputLines.map((line, index) => (
@@ -5567,9 +5603,9 @@ function RunConsoleTraceRow(props: {
     <div className={props.active ? `run-console-row trace ${props.trace.status} active` : `run-console-row trace ${props.trace.status}`}>
       <span className="run-console-time">{formatConsoleTimestamp(timestamp)}</span>
       {props.onClick ? (
-        <button type="button" className="run-console-main" onClick={props.onClick}>
+        <CommandButton type="button" className="run-console-main" onClick={props.onClick}>
           {content}
-        </button>
+        </CommandButton>
       ) : (
         <span className="run-console-main">{content}</span>
       )}
@@ -5594,13 +5630,13 @@ function RuntimeErrorSummary(props: {
       <AlertTriangle size={13} />
       <strong>{props.t("runtime.errorCount", { count: errorCount })}</strong>
       {firstError ? (
-        <button
+        <CommandButton
           type="button"
           title={props.t("runtime.focusFirstError")}
           onClick={() => props.onStep(firstError.index)}
         >
           {runtimeTraceNodeLabel(firstError.trace, props.traceLabel)}
-        </button>
+        </CommandButton>
       ) : (
         <span>{props.entry.message}</span>
       )}
@@ -5623,15 +5659,15 @@ function RuntimeTraceStepper(props: {
   const label = runtimeTraceNodeLabel(trace, props.traceLabel);
   return (
     <span className="trace-stepper" title={trace.message ?? label}>
-      <button title={props.t("runtime.previousTrace")} onClick={() => props.onStep(activeIndex - 1)} disabled={activeIndex <= 0}>
+      <CommandButton title={props.t("runtime.previousTrace")} onClick={() => props.onStep(activeIndex - 1)} disabled={activeIndex <= 0}>
         {props.t("common.previous")}
-      </button>
-      <button title={props.t("runtime.focusCurrentTrace")} onClick={() => props.onStep(activeIndex)}>
+      </CommandButton>
+      <CommandButton title={props.t("runtime.focusCurrentTrace")} onClick={() => props.onStep(activeIndex)}>
         {props.t("runtime.traceStep", { current: activeIndex + 1, total: props.entry.traces.length })}
-      </button>
-      <button title={props.t("runtime.nextTrace")} onClick={() => props.onStep(activeIndex + 1)} disabled={activeIndex >= props.entry.traces.length - 1}>
+      </CommandButton>
+      <CommandButton title={props.t("runtime.nextTrace")} onClick={() => props.onStep(activeIndex + 1)} disabled={activeIndex >= props.entry.traces.length - 1}>
         {props.t("common.next")}
-      </button>
+      </CommandButton>
       <span className={`trace-step-status ${trace.status}`}>{runtimeTraceStatusLabel(trace.status, props.t)}</span>
       <span className="trace-step-node">{label}</span>
     </span>
@@ -5731,22 +5767,22 @@ function RuntimeTraceDetails(props: {
 
   return (
     <div className="runtime-details">
-      <button
+      <CommandButton
         className={open ? "runtime-details-toggle active" : "runtime-details-toggle"}
         title={open ? props.t("runtime.hideDetails") : props.t("runtime.showDetails")}
         onClick={() => setOpen((current) => !current)}
       >
         {props.t("runtime.details")}
-      </button>
+      </CommandButton>
       {open ? (
         <div className="runtime-details-panel" role="dialog" aria-label={props.t("runtime.details")}>
           <div className="runtime-details-head">
             <strong>{props.t("runtime.runDetails")}</strong>
             <div className="runtime-details-actions">
               <span>{props.t("runtime.traceCount", { visible: filteredTraces.length, total: props.entry.traces.length })} · {props.entry.durationMs}ms</span>
-              <button title={props.t("runtime.copyFilteredDetails")} onClick={() => void copyFilteredDetails()}>
+              <CommandButton title={props.t("runtime.copyFilteredDetails")} onClick={() => void copyFilteredDetails()}>
                 <Copy size={12} /> {copyStatus === "copied" ? props.t("common.copied") : copyStatus === "failed" ? props.t("common.copyFailed") : props.t("runtime.copyJson")}
-              </button>
+              </CommandButton>
             </div>
           </div>
           {comparison ? (
@@ -5759,7 +5795,7 @@ function RuntimeTraceDetails(props: {
               {comparison.items.length ? (
                 <>
                   <div className="runtime-compare-filters">
-                    <button
+                    <CommandButton
                       className={comparisonFilter === "all" ? "active" : ""}
                       title={props.t("runtime.filterDifferencesBy", { filter: props.t("common.all") })}
                       onClick={() => {
@@ -5769,11 +5805,11 @@ function RuntimeTraceDetails(props: {
                       }}
                     >
                       {props.t("common.all")} <span>{comparison.items.length}</span>
-                    </button>
+                    </CommandButton>
                     {runtimeComparisonFilters
                       .filter((kind) => comparisonCounts.get(kind))
                       .map((kind) => (
-                        <button
+                        <CommandButton
                           key={kind}
                           className={comparisonFilter === kind ? `active ${kind}` : kind}
                           title={props.t("runtime.filterDifferencesBy", { filter: runtimeComparisonKindLabel(kind, props.t) })}
@@ -5784,11 +5820,11 @@ function RuntimeTraceDetails(props: {
                           }}
                         >
                           {runtimeComparisonKindLabel(kind, props.t)} <span>{comparisonCounts.get(kind)}</span>
-                        </button>
+                        </CommandButton>
                       ))}
                     <span className="runtime-compare-sort-label">{props.t("common.sort")}</span>
                     {(["kind", "node", "status"] as RuntimeComparisonSort[]).map((sort) => (
-                      <button
+                      <CommandButton
                         key={sort}
                         className={comparisonSort === sort ? "active" : ""}
                         title={props.t("runtime.sortDifferencesBy", { sort: runtimeComparisonSortLabel(sort, props.t) })}
@@ -5799,11 +5835,11 @@ function RuntimeTraceDetails(props: {
                         }}
                       >
                         {runtimeComparisonSortLabel(sort, props.t)}
-                      </button>
+                      </CommandButton>
                     ))}
-                    <button title={props.t("runtime.copyFilteredComparison")} onClick={() => void copyFilteredComparison()}>
+                    <CommandButton title={props.t("runtime.copyFilteredComparison")} onClick={() => void copyFilteredComparison()}>
                       <Copy size={12} /> {comparisonCopyStatus === "copied" ? props.t("common.copied") : comparisonCopyStatus === "failed" ? props.t("common.copyFailed") : props.t("runtime.copyDiff")}
-                    </button>
+                    </CommandButton>
                   </div>
                   <div className="runtime-compare-items">
                     {sortedComparisonItems.slice(0, 8).map((item) => {
@@ -5824,7 +5860,7 @@ function RuntimeTraceDetails(props: {
                               <small>{runtimeComparisonStatusText(item, props.t)}</small>
                             </span>
                           ) : (
-                            <button
+                            <CommandButton
                               className={className}
                               title={props.t("runtime.inspectRuntimeDifference", { kind: runtimeComparisonKindLabel(item.kind, props.t), label: item.label })}
                               onClick={() => {
@@ -5835,15 +5871,15 @@ function RuntimeTraceDetails(props: {
                               <strong>{runtimeComparisonKindLabel(item.kind, props.t)}</strong>
                               <span>{item.label}</span>
                               <small>{runtimeComparisonStatusText(item, props.t)}</small>
-                            </button>
+                            </CommandButton>
                           )}
-                          <button
+                          <CommandButton
                             className="runtime-compare-copy"
                             title={props.t("runtime.copyDifferenceFor", { label: item.label })}
                             onClick={() => void copyComparisonItem(item)}
                           >
                             <Copy size={11} /> {itemCopyLabel}
-                          </button>
+                          </CommandButton>
                           {contextDetails ? (
                             <div className="runtime-compare-context">
                               {contextDetails.previous ? (
@@ -5871,7 +5907,7 @@ function RuntimeTraceDetails(props: {
             </div>
           ) : null}
           <div className="runtime-details-filters">
-            <input
+            <TextInput
               value={query}
               placeholder={props.t("runtime.filterTraces")}
               onChange={(event) => {
@@ -5880,7 +5916,7 @@ function RuntimeTraceDetails(props: {
               }}
             />
             <div className="runtime-status-filters">
-              <button
+              <CommandButton
                 className={statusFilter === "all" ? "active" : ""}
                 title={props.t("runtime.filterTracesBy", { filter: props.t("common.all") })}
                 onClick={() => {
@@ -5889,11 +5925,11 @@ function RuntimeTraceDetails(props: {
                 }}
               >
                 {props.t("common.all")} <span>{props.entry.traces.length}</span>
-              </button>
+              </CommandButton>
               {runtimeTraceStatusFilters
                 .filter((status) => statusCounts.get(status))
                 .map((status) => (
-                  <button
+                  <CommandButton
                     key={status}
                     className={statusFilter === status ? `active ${status}` : status}
                     title={props.t("runtime.filterTracesBy", { filter: runtimeTraceStatusLabel(status, props.t) })}
@@ -5903,13 +5939,13 @@ function RuntimeTraceDetails(props: {
                     }}
                   >
                     {runtimeTraceStatusLabel(status, props.t)} <span>{statusCounts.get(status)}</span>
-                  </button>
+                  </CommandButton>
                 ))}
             </div>
             <div className="runtime-group-filters">
               <span>{props.t("common.group")}</span>
               {runtimeTraceGroupOptions.map((groupBy) => (
-                <button
+                <CommandButton
                   key={groupBy}
                   className={traceGroupBy === groupBy ? "active" : ""}
                   title={props.t("runtime.groupTracesBy", { group: runtimeTraceGroupLabel(groupBy, props.t) })}
@@ -5919,7 +5955,7 @@ function RuntimeTraceDetails(props: {
                   }}
                 >
                   {runtimeTraceGroupLabel(groupBy, props.t)}
-                </button>
+                </CommandButton>
               ))}
             </div>
           </div>
@@ -5936,7 +5972,7 @@ function RuntimeTraceDetails(props: {
                   const label = runtimeTraceNodeLabel(trace, props.traceLabel);
                   const context = runtimeTraceContextText(trace);
                   return (
-                    <button
+                    <CommandButton
                       key={`${trace.graphId}:${trace.nodeId}:${trace.status}:${trace.timestamp ?? index}:${index}`}
                       className={index === activeIndex ? `runtime-detail-row ${trace.status} active` : `runtime-detail-row ${trace.status}`}
                       title={props.t("runtime.inspectTrace", { index: index + 1, label })}
@@ -5947,7 +5983,7 @@ function RuntimeTraceDetails(props: {
                       <span className="runtime-detail-node">{label}</span>
                       <span className="runtime-detail-time">{runtimeTraceTimeText(trace, firstTimestamp)}</span>
                       {trace.message || context ? <small>{[trace.message, context].filter(Boolean).join(" · ")}</small> : null}
-                    </button>
+                    </CommandButton>
                   );
                 })}
               </div>
@@ -6048,8 +6084,12 @@ function InspectorPortGroup(props: {
             <span className="field-detail">
               {linked || port.direction === "output" || port.flowKind === "control" ? (
                 <span className="linked-control">
-                  <input disabled value={linked ? `${linked.fromNodeId}.${linked.fromPortId}` : port.type} />
-                  {linked ? <button type="button" title={props.t("inspector.disconnectPort", { port: portText.name })} disabled={props.readOnly} onClick={() => props.onUnlink?.(props.node, port)}>{props.t("inspector.unlink")}</button> : null}
+                  <TextInput disabled value={linked ? `${linked.fromNodeId}.${linked.fromPortId}` : port.type} />
+                  {linked ? (
+                    <CommandButton type="button" title={props.t("inspector.disconnectPort", { port: portText.name })} disabled={props.readOnly} onClick={() => props.onUnlink?.(props.node, port)}>
+                      {props.t("inspector.unlink")}
+                    </CommandButton>
+                  ) : null}
                 </span>
               ) : (
                 <PortEditor port={port} value={binding?.literalValue ?? port.defaultValue ?? ""} disabled={props.readOnly} onChange={(value) => props.onLiteralChange?.(props.node, port, value)} />
@@ -6082,21 +6122,21 @@ function formatPortDefaultValue(value: unknown): string {
 function PortEditor(props: { port: BlueprintPortDefinition; value: unknown; disabled?: boolean; onChange(value: unknown): void }): JSX.Element {
   if (props.port.constraints?.options?.length) {
     return (
-      <select value={String(props.value)} disabled={props.disabled} onChange={(event) => props.onChange(event.target.value)}>
+      <SelectInput value={String(props.value)} disabled={props.disabled} onChange={(event) => props.onChange(event.target.value)}>
         {props.port.constraints.options.map((option) => <option key={String(option)} value={String(option)}>{String(option)}</option>)}
-      </select>
+      </SelectInput>
     );
   }
 
   if (props.port.editor === "boolean") {
-    return <input type="checkbox" checked={Boolean(props.value)} disabled={props.disabled} onChange={(event) => props.onChange(event.target.checked)} />;
+    return <CheckboxInput checked={Boolean(props.value)} disabled={props.disabled} onChange={(event) => props.onChange(event.target.checked)} />;
   }
 
   if (props.port.editor === "number") {
-    return <input type="number" value={Number(props.value)} disabled={props.disabled} onChange={(event) => props.onChange(Number(event.target.value))} />;
+    return <NumberInput value={Number(props.value)} disabled={props.disabled} onChange={(event) => props.onChange(Number(event.target.value))} />;
   }
 
-  return <input value={String(props.value ?? "")} disabled={props.disabled} onChange={(event) => props.onChange(event.target.value)} />;
+  return <TextInput value={String(props.value ?? "")} disabled={props.disabled} onChange={(event) => props.onChange(event.target.value)} />;
 }
 
 function findNodesInGraph(graph: BlueprintGraph, templates: BlueprintNodeTemplate[], query: string, t: Translator, locale: Locale): NodeFindResult[] {
