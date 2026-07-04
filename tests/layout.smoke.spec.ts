@@ -406,7 +406,7 @@ test.describe("desktop layout smoke", () => {
     await expect(page.locator(".diagnostic-chip")).toHaveCount(0);
 
     await page.locator('[data-node-id="center-log"]').click();
-    await expect(page.locator('[data-node-id="center-log"] .runtime-badge')).toHaveClass(/error/);
+    await assertNodeStateAffordances(page);
     await page.getByTitle("编辑器设置").click();
 
     const themeCases = [
@@ -418,6 +418,8 @@ test.describe("desktop layout smoke", () => {
     for (const themeCase of themeCases) {
       await page.getByRole("button", { name: themeCase.title }).click();
       await expect(page.locator(`.shell.${themeCase.className}`)).toBeVisible();
+      await assertNodeStateAffordances(page);
+      await expectNoHorizontalOverflow(page);
       await page.screenshot({ path: test.info().outputPath(themeCase.screenshot), fullPage: true });
     }
   });
@@ -597,6 +599,48 @@ async function assertSelectionToolboxLayout(page: Page): Promise<void> {
       `.selection-toolbox overlaps ${selector}: ${JSON.stringify({ toolbox, other })}`
     ).toBe(0);
   }
+}
+
+async function assertNodeStateAffordances(page: Page): Promise<void> {
+  const selectedNode = page.locator('[data-node-id="center-log"]');
+  await expect(selectedNode, "selected runtime-error node").toHaveClass(/(^|\s)selected(\s|$)/);
+  await expect(selectedNode, "runtime-error node class").toHaveClass(/(^|\s)runtime-error(\s|$)/);
+  await expect(selectedNode.locator(".runtime-badge.error"), "runtime error badge").toBeVisible();
+  await expect(selectedNode.locator(".breakpoint-badge"), "breakpoint badge").toBeVisible();
+
+  const disabledNode = page.locator('[data-node-id="near-top-left"]');
+  await expect(disabledNode, "disabled node").toHaveClass(/(^|\s)disabled(\s|$)/);
+
+  for (const selector of [
+    '[data-node-id="center-log"]',
+    '[data-node-id="center-log"] .runtime-badge.error',
+    '[data-node-id="center-log"] .breakpoint-badge',
+    '[data-node-id="near-top-left"]'
+  ]) {
+    await assertInsideViewport(page, selector);
+  }
+
+  const stateSelectors = [
+    '[data-node-id="center-log"]',
+    '[data-node-id="center-log"] .runtime-badge.error',
+    '[data-node-id="center-log"] .breakpoint-badge',
+    '[data-node-id="near-top-left"]',
+    ".minimap-node.selected",
+    ".minimap-node.disabled",
+    ".minimap-node.breakpoint",
+    ".minimap-node.runtime-error"
+  ];
+  for (const selector of stateSelectors) {
+    const box = await page.locator(selector).first().boundingBox();
+    expect(box, `${selector} layout box`).not.toBeNull();
+    expect(box?.width ?? 0, `${selector} width`).toBeGreaterThan(0);
+    expect(box?.height ?? 0, `${selector} height`).toBeGreaterThan(0);
+  }
+
+  await expect(page.locator(".minimap-node.selected"), "selected minimap node").toHaveCount(1);
+  await expect(page.locator(".minimap-node.disabled"), "disabled minimap node").toHaveCount(1);
+  await expect(page.locator(".minimap-node.breakpoint"), "breakpoint minimap node").toHaveCount(1);
+  await expect(page.locator(".minimap-node.runtime-error"), "runtime-error minimap node").toHaveCount(1);
 }
 
 async function visibleFloatingBoxes(page: Page): Promise<Array<{ selector: string; box: Box }>> {
